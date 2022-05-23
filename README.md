@@ -1,3 +1,5 @@
+<img src="./imagen.png" width="450px"></img>
+
 ## Imagen - Pytorch (wip)
 
 Implementation of <a href="https://gweb-research-imagen.appspot.com/">Imagen</a>, Google's Text-to-Image Neural Network that beats DALL-E2, in Pytorch, the new SOTA for text-to-image.
