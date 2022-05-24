@@ -98,7 +98,6 @@ def resize_image_to(image, target_image_size):
 
 # image normalization functions
 # ddpms expect images to be in the range of -1 to 1
-# but CLIP may otherwise
 
 def normalize_neg_one_to_one(img):
     return img * 2 - 1
@@ -1025,7 +1024,6 @@ class Imagen(BaseGaussianDiffusion):
         self,
         unet,
         *,
-        clip = None,
         image_size = None,
         channels = 3,
         timesteps = 1000,
@@ -1062,7 +1060,7 @@ class Imagen(BaseGaussianDiffusion):
             assert exists(image_size) ^ exists(image_sizes), 'only one of image_size or image_sizes must be given'
             image_size = default(image_size, lambda: image_sizes[-1])
         else:
-            raise Error('either image_size, image_sizes, or clip must be given to decoder')
+            raise Error('either image_size or image sizes must be given to imagen')
 
         # channels
 
@@ -1165,7 +1163,7 @@ class Imagen(BaseGaussianDiffusion):
             unet.to(device)
 
     def p_mean_variance(self, unet, x, t, text_embeds = None, text_mask = None, lowres_cond_img = None, clip_denoised = True, predict_x_start = False, learned_variance = False, cond_scale = 1., model_output = None):
-        assert not (cond_scale != 1. and not self.can_classifier_guidance), 'the decoder was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
+        assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
         pred = default(model_output, lambda: unet.forward_with_cond_scale(x, t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img))
 
@@ -1310,8 +1308,8 @@ class Imagen(BaseGaussianDiffusion):
         if exists(text) and not exists(text_embeds) and not self.unconditional:
             assert False, 'needs to be built'
 
-        assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
-        assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
+        assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
+        assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
 
         img = None
         is_cuda = next(self.parameters()).is_cuda
