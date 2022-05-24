@@ -72,6 +72,7 @@ images = imagen.sample(text_embeds = text_embeds) # (4, 3, 256, 256)
 - [ ] add the noise level conditioning with the pseudocode in appendix, and figure out what is this sweep they do at inference time
 - [ ] add dynamic thresholding, add to DALLE2 and video-diffusion repository as well
 - [ ] port over some training code from DALLE2
+- [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 
 ## Citations
 
