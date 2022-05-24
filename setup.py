@@ -19,8 +19,13 @@ setup(
   ],
   install_requires=[
     'einops>=0.4',
+    'einops-exts',
+    'kornia',
+    'resize-right',
     'torch>=1.6',
-    'transformers'
+    'torchvision',
+    'transformers',
+    'tqdm'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
