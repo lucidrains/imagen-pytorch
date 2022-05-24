@@ -609,20 +609,6 @@ class CrossAttention(nn.Module):
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
 
-class GridAttention(nn.Module):
-    def __init__(self, *args, window_size = 8, **kwargs):
-        super().__init__()
-        self.window_size = window_size
-        self.attn = Attention(*args, **kwargs)
-
-    def forward(self, x):
-        h, w = x.shape[-2:]
-        wsz = self.window_size
-        x = rearrange(x, 'b c (w1 h) (w2 w) -> (b h w) (w1 w2) c', w1 = wsz, w2 = wsz)
-        out = self.attn(x)
-        out = rearrange(out, '(b h w) (w1 w2) c -> b c (w1 h) (w2 w)', w1 = wsz, w2 = wsz, h = h // wsz, w = w // wsz)
-        return out
-
 class LinearAttention(nn.Module):
     def __init__(
         self,
