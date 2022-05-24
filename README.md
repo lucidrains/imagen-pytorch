@@ -71,11 +71,12 @@ images.shape # (3, 3, 256, 256)
 ## Todo
 
 - [x] use huggingface transformers for T5-small text embeddings
+- [x] add dynamic thresholding
+- [ ] add dynamic thresholding DALLE2 and video-diffusion repository as well
 - [ ] allow for one to set T5-large (and perhaps small factory method to take in any huggingface transformer)
 - [ ] separate unet into base unet and SR3 unet
 - [ ] build whatever efficient unet they came up with
 - [ ] add the noise level conditioning with the pseudocode in appendix, and figure out what is this sweep they do at inference time
-- [ ] add dynamic thresholding, add to DALLE2 and video-diffusion repository as well
 - [ ] port over some training code from DALLE2
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 

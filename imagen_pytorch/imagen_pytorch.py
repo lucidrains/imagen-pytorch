@@ -1033,6 +1033,7 @@ class Imagen(BaseGaussianDiffusion):
         learned_variance = True,
         vb_loss_weight = 0.001,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
+        dynamic_thresholding_percentile = 0.9       # unsure what this was based on perusal of paper
     ):
         super().__init__(
             beta_schedule = beta_schedule,
@@ -1128,6 +1129,8 @@ class Imagen(BaseGaussianDiffusion):
         self.normalize_img = normalize_neg_one_to_one if auto_normalize_img else identity
         self.unnormalize_img = unnormalize_zero_to_one if auto_normalize_img else identity
 
+        self.dynamic_thresholding_percentile = dynamic_thresholding_percentile
+
     def get_unet(self, unet_number):
         assert 0 < unet_number <= len(self.unets)
         index = unet_number - 1
@@ -1165,7 +1168,18 @@ class Imagen(BaseGaussianDiffusion):
             x_recon = self.predict_start_from_noise(x, t = t, noise = pred)
 
         if clip_denoised:
-            x_recon.clamp_(-1., 1.)
+            # following pseudocode in appendix
+            # s is the dynamic threshold, determined by percentile of absolute values of reconstructed sample per batch element
+
+            s = torch.quantile(
+                rearrange(x_recon, 'b ... -> b (...)').abs(),
+                self.dynamic_thresholding_percentile,
+                dim = -1
+            )
+
+            s.clamp_(min = 1.)
+            s = s.view(-1, *((1,) * (x_recon.ndim - 1)))
+            x_recon = x_recon.clamp(-s, s) / s
 
         model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_recon, x_t=x, t=t)
 
