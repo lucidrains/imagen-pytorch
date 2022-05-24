@@ -1,4 +1,5 @@
 import math
+from typing import List
 from tqdm import tqdm
 from inspect import isfunction
 from functools import partial, wraps
@@ -20,6 +21,8 @@ from kornia.filters import gaussian_blur2d
 import kornia.augmentation as K
 
 from resize_right import resize
+
+from imagen_pytorch.t5 import t5_encode_text, T5_SMALL_EMBED_DIM
 
 # constants
 
@@ -693,7 +696,7 @@ class Unet(nn.Module):
         dim,
         *,
         image_embed_dim = None,
-        text_embed_dim = None,
+        text_embed_dim = T5_SMALL_EMBED_DIM,
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
@@ -1295,18 +1298,21 @@ class Imagen(BaseGaussianDiffusion):
     @eval_decorator
     def sample(
         self,
-        text = None,
+        texts: List[str] = None,
         text_mask = None,
         text_embeds = None,
         batch_size = 1,
         cond_scale = 1.,
         stop_at_unet_number = None
     ):
+        device = next(self.parameters()).device
+
+        if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            text_embeds = t5_encode_text(texts)
+            text_embeds.to(device)
+
         if not self.unconditional:
             batch_size = text_embeds.shape[0]
-
-        if exists(text) and not exists(text_embeds) and not self.unconditional:
-            assert False, 'needs to be built'
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
@@ -1347,7 +1353,7 @@ class Imagen(BaseGaussianDiffusion):
     def forward(
         self,
         image,
-        text = None,
+        texts: List[str] = None,
         text_embeds = None,
         text_mask = None,
         unet_number = None
@@ -1355,7 +1361,7 @@ class Imagen(BaseGaussianDiffusion):
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
         unet_number = default(unet_number, 1)
         unet_index = unet_number - 1
-
+        
         unet = self.get_unet(unet_number)
 
         target_image_size   = self.image_sizes[unet_index]
@@ -1369,8 +1375,9 @@ class Imagen(BaseGaussianDiffusion):
 
         times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
 
-        if exists(text) and not exists(text_embeds) and not self.unconditional:
-            assert False, 'not built yet'
+        if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            text_embeds = t5_encode_text(texts)
+            text_embds.to(image.device)
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'

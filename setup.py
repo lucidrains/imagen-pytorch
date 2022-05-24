@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'imagen-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.1',
+  version = '0.0.3',
   license='MIT',
   description = 'Imagen - unprecedented photorealism × deep level of language understanding',
   author = 'Phil Wang',

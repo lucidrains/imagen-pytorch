@@ -23,16 +23,14 @@ from imagen_pytorch import Unet, Imagen
 # unet for imagen
 
 unet1 = Unet(
-    dim = 128,
-    text_embed_dim = 512,
+    dim = 32,
     cond_dim = 128,
     channels = 3,
     dim_mults=(1, 2, 4, 8)
 ).cuda()
 
 unet2 = Unet(
-    dim = 128,
-    text_embed_dim = 512,
+    dim = 32,
     cond_dim = 128,
     channels = 3,
     dim_mults=(1, 2, 4, 8)
@@ -61,12 +59,19 @@ for i in (1, 2):
 # do the above for many many many many steps
 # now you can sample an image based on the text embeddings from the cascading ddpm
 
-images = imagen.sample(text_embeds = text_embeds) # (4, 3, 256, 256)
+images = imagen.sample(texts = [
+    'a whale breaching from afar',
+    'young girl blowing out candles on her birthday cake',
+    'fireworks with blue and green sparkles'
+])
+
+images.shape # (3, 3, 256, 256)
 ```
 
 ## Todo
 
-- [ ] use huggingface transformers for T5-small text embeddings, allow for one to set T5-large
+- [x] use huggingface transformers for T5-small text embeddings
+- [ ] allow for one to set T5-large (and perhaps small factory method to take in any huggingface transformer)
 - [ ] separate unet into base unet and SR3 unet
 - [ ] build whatever efficient unet they came up with
 - [ ] add the noise level conditioning with the pseudocode in appendix, and figure out what is this sweep they do at inference time
