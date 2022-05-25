@@ -1,5 +1,5 @@
 import torch
-from transformers import T5Tokenizer, T5ForConditionalGeneration, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import T5Tokenizer, T5EncoderModel, AutoTokenizer, AutoModelForSeq2SeqLM
 
 def exists(val):
     return val is not None
@@ -45,7 +45,7 @@ def get_klass(name):
     src = config.get('src')
 
     if src == 't5':
-        return T5Tokenizer, T5ForConditionalGeneration
+        return T5Tokenizer, T5EncoderModel
     elif src == 'auto':
         return AutoTokenizer, AutoModelForSeq2SeqLM
     else:
@@ -105,7 +105,7 @@ def t5_encode_text(texts, name = 't5-small'):
 
     t5.eval()
     with torch.no_grad():
-        output = t5(input_ids = input_ids, attention_mask = attn_mask, decoder_input_ids = input_ids[:, :1]) # too lazy to figure out how to make it work without decoder inputs
-        encoded_text = output.encoder_last_hidden_state.detach()
+        output = t5(input_ids = input_ids, attention_mask = attn_mask) # too lazy to figure out how to make it work without decoder inputs
+        encoded_text = output.last_hidden_state.detach()
 
     return encoded_text, attn_mask.bool()
