@@ -1,5 +1,5 @@
 import torch
-from transformers import T5Tokenizer, T5ForConditionalGeneration
+from transformers import T5Tokenizer, T5ForConditionalGeneration, AutoTokenizer, AutoModelForSeq2SeqLM
 
 def exists(val):
     return val is not None
@@ -8,30 +8,59 @@ def exists(val):
 
 MAX_LENGTH = 256
 
-DEFAULT_T5_NAME = 't5-base'
+DEFAULT_T5_NAME = 'google/t5-v1_1-base'
 
 T5_CONFIGS = {
     't5-small': {
+        'src': 't5',
         'dim': 512
     },
     't5-base': {
+        'src': 't5',
         'dim': 768
     },
     't5-large': {
+        'src': 't5',
+        'dim': 1024
+    },
+    'google/t5-v1_1-small': {
+        'src': 'auto',
+        'dim': 512
+    },
+    'google/t5-v1_1-base': {
+        'src': 'auto',
+        'dim': 768
+    },
+    'google/t5-v1_1-large': {
+        'src': 'auto',
         'dim': 1024
     }
 }
 
 # singleton globals
 
+def get_klass(name):
+    assert name in T5_CONFIGS
+    config = T5_CONFIGS[name]
+    src = config.get('src')
+
+    if src == 't5':
+        return T5Tokenizer, T5ForConditionalGeneration
+    elif src == 'auto':
+        return AutoTokenizer, AutoModelForSeq2SeqLM
+    else:
+        raise ValueError(f'unknown source {src}')
+
 def get_tokenizer(name):
     assert name in T5_CONFIGS
-    tokenizer = T5Tokenizer.from_pretrained(name)
+    tokenizer_klass, _ = get_klass(name)
+    tokenizer = tokenizer_klass.from_pretrained(name)
     return tokenizer
 
 def get_model(name):
     assert name in T5_CONFIGS
-    model = T5ForConditionalGeneration.from_pretrained(name)
+    _, model_klass = get_klass(name)
+    model = model_klass.from_pretrained(name)
     return model
 
 def get_model_and_tokenizer(name):
