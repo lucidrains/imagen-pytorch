@@ -704,7 +704,7 @@ class Unet(nn.Module):
         lowres_cond = False, # for cascading diffusion - https://cascaded-diffusion.github.io/
         sparse_attn = False,
         attend_at_middle = True, # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
-        cond_on_text = False,
+        cond_on_text = True,
         max_text_len = 256,
         init_dim = None,
         init_conv_kernel_size = 7,
@@ -1033,7 +1033,6 @@ class Imagen(BaseGaussianDiffusion):
         loss_type = 'l2',
         beta_schedule = 'cosine',
         predict_x_start = False,
-        predict_x_start_for_latent_diffusion = False,
         image_sizes = None,                         # for cascading ddpm, image size at each stage
         random_crop_sizes = None,                   # whether to random crop the image at that stage in the cascade (super resoluting convolutions at the end may be able to generalize on smaller crops)
         lowres_downsample_first = True,             # cascading ddpm - resizes to lower resolution, then to next conditional resolution + blur
@@ -1042,7 +1041,6 @@ class Imagen(BaseGaussianDiffusion):
         condition_on_text = True,
         clip_denoised = True,
         clip_x_start = True,
-        clip_adapter_overrides = dict(),
         learned_variance = True,
         vb_loss_weight = 0.001,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
@@ -1082,6 +1080,7 @@ class Imagen(BaseGaussianDiffusion):
 
         # get text encoder
 
+        self.text_encoder_name = text_encoder_name
         text_embed_dim = get_encoded_dim(text_encoder_name)
 
         # construct unets
@@ -1096,8 +1095,8 @@ class Imagen(BaseGaussianDiffusion):
 
             one_unet = one_unet.cast_model_parameters(
                 lowres_cond = not is_first,
-                cond_on_text = one_unet.cond_on_text and not unconditional,
-                text_embed_dim = text_embed_dim,
+                cond_on_text = self.condition_on_text,
+                text_embed_dim = text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
                 channels_out = unet_channels_out
             )
@@ -1326,7 +1325,7 @@ class Imagen(BaseGaussianDiffusion):
         device = next(self.parameters()).device
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds = t5_encode_text(texts)
+            text_embeds = t5_encode_text(texts, name = self.text_encoder_name)
             text_embeds.to(device)
 
         if not self.unconditional:
@@ -1394,7 +1393,7 @@ class Imagen(BaseGaussianDiffusion):
         times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds = t5_encode_text(texts)
+            text_embeds = t5_encode_text(texts, name = self.text_encoder_name)
             text_embds.to(image.device)
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
