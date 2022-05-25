@@ -17,9 +17,6 @@ from einops.layers.torch import Rearrange
 from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
 
-from kornia.filters import gaussian_blur2d
-import kornia.augmentation as K
-
 from resize_right import resize
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
@@ -175,8 +172,8 @@ def linear_beta_schedule(timesteps):
     return torch.linspace(beta_start, beta_end, timesteps, dtype = torch.float64)
 
 
-class BaseGaussianDiffusion(nn.Module):
-    def __init__(self, *, beta_schedule, timesteps, loss_type):
+class GaussianDiffusion(nn.Module):
+    def __init__(self, *, beta_schedule, timesteps):
         super().__init__()
 
         if beta_schedule == "cosine":
@@ -192,18 +189,6 @@ class BaseGaussianDiffusion(nn.Module):
 
         timesteps, = betas.shape
         self.num_timesteps = int(timesteps)
-
-        if loss_type == 'l1':
-            loss_fn = F.l1_loss
-        elif loss_type == 'l2':
-            loss_fn = F.mse_loss
-        elif loss_type == 'huber':
-            loss_fn = F.smooth_l1_loss
-        else:
-            raise NotImplementedError()
-
-        self.loss_type = loss_type
-        self.loss_fn = loss_fn
 
         # register buffer helper function to cast double back to float
 
@@ -922,7 +907,7 @@ class Unet(nn.Module):
 
         return self.final_conv(x)
 
-class Imagen(BaseGaussianDiffusion):
+class Imagen(nn.Module):
     def __init__(
         self,
         unets,
@@ -943,11 +928,26 @@ class Imagen(BaseGaussianDiffusion):
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         dynamic_thresholding_percentile = 0.9       # unsure what this was based on perusal of paper
     ):
-        super().__init__(
-            beta_schedule = beta_schedule,
-            timesteps = timesteps,
-            loss_type = loss_type
-        )
+        super().__init__()
+
+        self.noise_scheduler = GaussianDiffusion(beta_schedule = beta_schedule, timesteps = timesteps)
+        self.num_timesteps = self.noise_scheduler.num_timesteps
+
+        # loss
+
+        if loss_type == 'l1':
+            loss_fn = F.l1_loss
+        elif loss_type == 'l2':
+            loss_fn = F.mse_loss
+        elif loss_type == 'huber':
+            loss_fn = F.smooth_l1_loss
+        else:
+            raise NotImplementedError()
+
+        self.loss_type = loss_type
+        self.loss_fn = loss_fn
+
+        # conditioning hparams
 
         self.condition_on_text = condition_on_text
         self.unconditional = not condition_on_text
@@ -1058,7 +1058,7 @@ class Imagen(BaseGaussianDiffusion):
         if learned_variance:
             pred, var_interp_frac_unnormalized = pred.chunk(2, dim = 1)
 
-        x_recon = self.predict_start_from_noise(x, t = t, noise = pred)
+        x_recon = self.noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
 
         if clip_denoised:
             # following pseudocode in appendix
@@ -1074,14 +1074,14 @@ class Imagen(BaseGaussianDiffusion):
             s = s.view(-1, *((1,) * (x_recon.ndim - 1)))
             x_recon = x_recon.clamp(-s, s) / s
 
-        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start=x_recon, x_t=x, t=t)
+        model_mean, posterior_variance, posterior_log_variance = self.noise_scheduler.q_posterior(x_start=x_recon, x_t=x, t=t)
 
         if learned_variance:
             # if learned variance, posterio variance and posterior log variance are predicted by the network
             # by an interpolation of the max and min log beta values
             # eq 15 - https://arxiv.org/abs/2102.09672
-            min_log = extract(self.posterior_log_variance_clipped, t, x.shape)
-            max_log = extract(torch.log(self.betas), t, x.shape)
+            min_log = extract(self.noise_scheduler.posterior_log_variance_clipped, t, x.shape)
+            max_log = extract(torch.log(self.noise_scheduler.betas), t, x.shape)
             var_interp_frac = unnormalize_zero_to_one(var_interp_frac_unnormalized)
 
             posterior_log_variance = var_interp_frac * max_log + (1 - var_interp_frac) * min_log
@@ -1100,7 +1100,7 @@ class Imagen(BaseGaussianDiffusion):
 
     @torch.no_grad()
     def p_sample_loop(self, unet, shape, learned_variance = False, clip_denoised = True, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
-        device = self.betas.device
+        device = self.noise_scheduler.betas.device
 
         b = shape[0]
         img = torch.randn(shape, device = device)
@@ -1133,7 +1133,7 @@ class Imagen(BaseGaussianDiffusion):
 
         # get x_t
 
-        x_noisy = self.q_sample(x_start = x_start, t = times, noise = noise)
+        x_noisy = self.noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
 
         # also noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
@@ -1141,7 +1141,7 @@ class Imagen(BaseGaussianDiffusion):
         lowres_cond_img_noisy = None
         if exists(lowres_cond_img):
             lowres_aug_times = default(lowres_aug_times, times)
-            lowres_cond_img_noisy = self.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+            lowres_cond_img_noisy = self.noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
         # get prediction
 
@@ -1173,7 +1173,7 @@ class Imagen(BaseGaussianDiffusion):
 
         # if learning the variance, also include the extra weight kl loss
 
-        true_mean, _, true_log_variance_clipped = self.q_posterior(x_start = x_start, x_t = x_noisy, t = times)
+        true_mean, _, true_log_variance_clipped = self.noise_scheduler.q_posterior(x_start = x_start, x_t = x_noisy, t = times)
         model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x_noisy, t = times, clip_denoised = clip_denoised, learned_variance = True, model_output = model_output)
 
         # kl loss with detached model predicted mean, for stability reasons as in paper
@@ -1238,7 +1238,7 @@ class Imagen(BaseGaussianDiffusion):
 
                 if unet.lowres_cond:
                     lowres_cond_img = resize_image_to(img, image_size)
-                    lowres_cond_img = self.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
+                    lowres_cond_img = self.noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 shape = (batch_size, self.channels, image_size, image_size)
 
@@ -1300,13 +1300,5 @@ class Imagen(BaseGaussianDiffusion):
             lowres_aug_times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
 
         image = resize_image_to(image, target_image_size)
-
-        if exists(random_crop_size):
-            aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
-
-            # make sure low res conditioner and image both get augmented the same way
-            # detailed https://kornia.readthedocs.io/en/latest/augmentation.module.html?highlight=randomcrop#kornia.augmentation.RandomCrop
-            image = aug(image)
-            lowres_cond_img = aug(lowres_cond_img, params = aug._params)
 
         return self.p_losses(unet, image, times, text_embeds = text_embeds, text_mask = text_masks, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, learned_variance = learned_variance)
