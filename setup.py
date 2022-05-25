@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'imagen-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.12',
+  version = '0.0.15',
   license='MIT',
   description = 'Imagen - unprecedented photorealism × deep level of language understanding',
   author = 'Phil Wang',
@@ -22,6 +22,7 @@ setup(
     'einops-exts',
     'kornia',
     'numpy',
+    'pydantic',
     'resize-right',
     'torch>=1.6',
     'torchvision',

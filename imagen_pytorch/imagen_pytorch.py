@@ -620,7 +620,7 @@ class Unet(nn.Module):
         self,
         dim,
         *,
-        image_embed_dim = None,
+        image_embed_dim = 1024,
         text_embed_dim = 512,
         cond_dim = None,
         num_image_tokens = 4,
@@ -940,14 +940,13 @@ class Imagen(BaseGaussianDiffusion):
         self,
         unets,
         *,
+        image_sizes,                                # for cascading ddpm, image size at each stage
         text_encoder_name = 't5-small',
-        image_size = None,
         channels = 3,
         timesteps = 1000,
         cond_drop_prob = 0.1,
         loss_type = 'l2',
         beta_schedule = 'cosine',
-        image_sizes = None,                         # for cascading ddpm, image size at each stage
         random_crop_sizes = None,                   # whether to random crop the image at that stage in the cascade (super resoluting convolutions at the end may be able to generalize on smaller crops)
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         condition_on_text = True,
@@ -965,14 +964,6 @@ class Imagen(BaseGaussianDiffusion):
 
         self.condition_on_text = condition_on_text
         self.unconditional = not condition_on_text
-
-        # determine image size, with image_size and image_sizes taking precedence
-
-        if exists(image_size) or exists(image_sizes):
-            assert exists(image_size) ^ exists(image_sizes), 'only one of image_size or image_sizes must be given'
-            image_size = default(image_size, lambda: image_sizes[-1])
-        else:
-            raise Error('either image_size or image sizes must be given to imagen')
 
         # channels
 
@@ -1016,11 +1007,8 @@ class Imagen(BaseGaussianDiffusion):
 
         # unet image sizes
 
-        image_sizes = default(image_sizes, (image_size,))
-        image_sizes = tuple(sorted(set(image_sizes)))
-
         assert len(self.unets) == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
-        self.image_sizes = image_sizes
+        self.image_sizes = cast_tuple(image_sizes)
         self.sample_channels = cast_tuple(self.channels, len(image_sizes))
 
         # random crop sizes (for super-resoluting unets at the end of cascade?)
