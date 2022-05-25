@@ -22,7 +22,7 @@ import kornia.augmentation as K
 
 from resize_right import resize
 
-from imagen_pytorch.t5 import t5_encode_text, T5_SMALL_EMBED_DIM
+from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim
 
 # constants
 
@@ -233,7 +233,7 @@ class BaseGaussianDiffusion(nn.Module):
 
         # register buffer helper function to cast double back to float
 
-        register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32))
+        register_buffer = lambda name, val: self.register_buffer(name, val.to(torch.float32), persistent = False)
 
         register_buffer('betas', betas)
         register_buffer('alphas_cumprod', alphas_cumprod)
@@ -691,7 +691,7 @@ class Unet(nn.Module):
         dim,
         *,
         image_embed_dim = None,
-        text_embed_dim = T5_SMALL_EMBED_DIM,
+        text_embed_dim = 512,
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
@@ -842,6 +842,7 @@ class Unet(nn.Module):
         self,
         *,
         lowres_cond,
+        text_embed_dim,
         channels,
         channels_out,
         cond_on_text
@@ -849,11 +850,13 @@ class Unet(nn.Module):
         if lowres_cond == self.lowres_cond and \
             channels == self.channels and \
             cond_on_text == self.cond_on_text and \
+            text_embed_dim == self._locals['text_embed_dim'] and \
             channels_out == self.channels_out:
             return self
 
         updated_kwargs = dict(
             lowres_cond = lowres_cond,
+            text_embed_dim = text_embed_dim,
             channels = channels,
             channels_out = channels_out,
             cond_on_text = cond_on_text
@@ -1020,8 +1023,9 @@ class LowresConditioner(nn.Module):
 class Imagen(BaseGaussianDiffusion):
     def __init__(
         self,
-        unet,
+        unets,
         *,
+        text_encoder_name = 't5-small',
         image_size = None,
         channels = 3,
         timesteps = 1000,
@@ -1068,13 +1072,17 @@ class Imagen(BaseGaussianDiffusion):
         # automatically take care of ensuring that first unet is unconditional
         # while the rest of the unets are conditioned on the low resolution image produced by previous unet
 
-        unets = cast_tuple(unet)
+        unets = cast_tuple(unets)
 
         # whether to use learned variance, defaults to True for the first unet in the cascade, as in paper
 
         learned_variance = pad_tuple_to_length(cast_tuple(learned_variance), len(unets), fillvalue = False)
         self.learned_variance = learned_variance
         self.vb_loss_weight = vb_loss_weight
+
+        # get text encoder
+
+        text_embed_dim = get_encoded_dim(text_encoder_name)
 
         # construct unets
 
@@ -1089,6 +1097,7 @@ class Imagen(BaseGaussianDiffusion):
             one_unet = one_unet.cast_model_parameters(
                 lowres_cond = not is_first,
                 cond_on_text = one_unet.cond_on_text and not unconditional,
+                text_embed_dim = text_embed_dim,
                 channels = self.channels,
                 channels_out = unet_channels_out
             )

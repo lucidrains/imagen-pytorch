@@ -39,7 +39,7 @@ unet2 = Unet(
 # imagen, which contains the unets above (base unet and super resoluting ones)
 
 imagen = Imagen(
-    unet = (unet1, unet2),
+    unets = (unet1, unet2),
     image_sizes = (64, 256),
     timesteps = 100,
     cond_drop_prob = 0.5
@@ -73,7 +73,7 @@ images.shape # (3, 3, 256, 256)
 - [x] use huggingface transformers for T5-small text embeddings
 - [x] add dynamic thresholding
 - [x] add dynamic thresholding DALLE2 and video-diffusion repository as well
-- [ ] allow for one to set T5-large (and perhaps small factory method to take in any huggingface transformer)
+- [x] allow for one to set T5-large (and perhaps small factory method to take in any huggingface transformer)
 - [ ] separate unet into base unet and SR3 unet
 - [ ] build whatever efficient unet they came up with
 - [ ] add the noise level conditioning with the pseudocode in appendix, and figure out what is this sweep they do at inference time
