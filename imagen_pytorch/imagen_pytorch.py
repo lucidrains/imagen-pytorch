@@ -1143,7 +1143,8 @@ class Imagen(nn.Module):
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
-        stop_at_unet_number = None
+        stop_at_unet_number = None,
+        return_pil_images = False
     ):
         device = next(self.parameters()).device
 
@@ -1196,7 +1197,11 @@ class Imagen(nn.Module):
             if exists(stop_at_unet_number) and stop_at_unet_number == unet_number:
                 break
 
-        return img
+        if not return_pil_images:
+            return img
+
+        pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
+        return pil_images # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
     def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False):
         noise = default(noise, lambda: torch.randn_like(x_start))
