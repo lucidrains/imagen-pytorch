@@ -21,12 +21,12 @@ T5_CONFIGS = {
 
 def get_tokenizer(name):
     assert name in T5_CONFIGS
-    tokenizer = T5Tokenizer.from_pretrained("t5-small")
+    tokenizer = T5Tokenizer.from_pretrained(name)
     return tokenizer
 
 def get_model(name):
     assert name in T5_CONFIGS
-    model = T5ForConditionalGeneration.from_pretrained("t5-small")
+    model = T5ForConditionalGeneration.from_pretrained(name)
     return model
 
 def get_model_and_tokenizer(name):
