@@ -1295,6 +1295,7 @@ class Imagen(BaseGaussianDiffusion):
         text_embeds = None,
         batch_size = 1,
         cond_scale = 1.,
+        lowres_sample_noise_level = None,
         stop_at_unet_number = None
     ):
         device = next(self.parameters()).device
@@ -1313,7 +1314,8 @@ class Imagen(BaseGaussianDiffusion):
         is_cuda = next(self.parameters()).is_cuda
         device = next(self.parameters()).device
 
-        lowres_noise_times = torch.full((batch_size,), self.lowres_sample_noise_level, device = device, dtype = torch.long)
+        lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
+        lowres_noise_times = torch.full((batch_size,), lowres_sample_noise_level, device = device, dtype = torch.long)
 
         for unet_number, unet, channel, image_size, learned_variance in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.learned_variance)):
 

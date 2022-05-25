@@ -63,7 +63,7 @@ images = imagen.sample(texts = [
     'a whale breaching from afar',
     'young girl blowing out candles on her birthday cake',
     'fireworks with blue and green sparkles'
-])
+], cond_scale = 2.)
 
 images.shape # (3, 3, 256, 256)
 ```
