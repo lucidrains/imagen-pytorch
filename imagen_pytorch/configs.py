@@ -40,11 +40,11 @@ class UnetConfig(BaseModel):
 class ImagenConfig(BaseModel):
     unets: ListOrTuple(UnetConfig)
     image_sizes: ListOrTuple(int)
+    timesteps: Union[int, ListOrTuple(int)] = 1000
+    beta_schedules: Union[BetaSchedule, ListOrTuple(BetaSchedule)] = 'cosine'
     text_encoder_name: str = DEFAULT_T5_NAME
     channels: int = 3
-    timesteps: int = 1000
     loss_type: str = 'l2'
-    beta_schedule: BetaSchedule = 'cosine'
     learned_variance: bool = True
     cond_drop_prob: float = 0.5
 

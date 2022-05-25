@@ -41,7 +41,8 @@ unet2 = Unet(
 imagen = Imagen(
     unets = (unet1, unet2),
     image_sizes = (64, 256),
-    timesteps = 100,
+    beta_schedules = ('cosine', 'linear'),
+    timesteps = 1000,
     cond_drop_prob = 0.5
 ).cuda()
 
@@ -96,7 +97,8 @@ imagen = Imagen(
     unets = (unet1, unet2),
     text_encoder_name = 't5-large',
     image_sizes = (64, 256),
-    timesteps = 100,
+    beta_schedules = ('cosine', 'linear'),
+    timesteps = 1000,
     cond_drop_prob = 0.5
 ).cuda()
 
@@ -134,11 +136,11 @@ images.shape # (3, 3, 256, 256)
 - [x] allow for one to set T5-large (and perhaps small factory method to take in any huggingface transformer)
 - [x] add the lowres noise level with the pseudocode in appendix, and figure out what is this sweep they do at inference time
 - [x] port over some training code from DALLE2
+- [x] need to be able to use a different noise schedule per unet (cosine was used for base, but linear for SR)
 - [ ] separate unet into base unet and SR3 unet
 - [ ] build whatever efficient unet they came up with
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages
-- [ ] need to be able to use a different noise schedule per unet (cosine was used for base, but linear for SR)
 
 ## Citations
 

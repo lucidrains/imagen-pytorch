@@ -243,12 +243,6 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
         )
 
-    def sample(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def forward(self, *args, **kwargs):
-        raise NotImplementedError
-
 # norms and residuals
 
 class LayerNorm(nn.Module):
@@ -525,7 +519,7 @@ class LinearAttention(nn.Module):
         inner_dim = dim_head * heads
         self.norm = ChanLayerNorm(dim)
 
-        self.nonlin = nn.GELU()
+        self.nonlin = nn.SiLU()
         self.to_qkv = nn.Conv2d(dim, inner_dim * 3, 1, bias = False)
 
         self.to_out = nn.Sequential(
@@ -551,6 +545,15 @@ class LinearAttention(nn.Module):
 
         out = self.nonlin(out)
         return self.to_out(out)
+
+def FeedForward(dim, mult = 2):  # in paper, it seems for self attention layers they did feedforwards with twice channel width
+    hidden_dim = int(dim * mult)
+    return nn.Sequential(
+        nn.Conv2d(dim, hidden_dim, 1, bias = False),
+        nn.GELU(),
+        ChanLayerNorm(hidden_dim),
+        nn.Conv2d(hidden_dim, dim, 1, bias = False)
+    )
 
 class CrossEmbedLayer(nn.Module):
     def __init__(
@@ -641,7 +644,7 @@ class Unet(nn.Module):
         self.to_time_hiddens = nn.Sequential(
             SinusoidalPosEmb(dim),
             nn.Linear(dim, time_cond_dim),
-            nn.GELU()
+            nn.SiLU()
         )
 
         self.to_lowres_time_hiddens = None
@@ -649,7 +652,7 @@ class Unet(nn.Module):
             self.to_lowres_time_hiddens = nn.Sequential(
                 SinusoidalPosEmb(dim),
                 nn.Linear(dim, time_cond_dim),
-                nn.GELU()
+                nn.SiLU()
             )
             time_cond_dim *= 2
 
@@ -918,8 +921,7 @@ class Imagen(nn.Module):
         timesteps = 1000,
         cond_drop_prob = 0.1,
         loss_type = 'l2',
-        beta_schedule = 'cosine',
-        random_crop_sizes = None,                   # whether to random crop the image at that stage in the cascade (super resoluting convolutions at the end may be able to generalize on smaller crops)
+        beta_schedules = 'cosine',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         condition_on_text = True,
         clip_denoised = True,
@@ -929,9 +931,6 @@ class Imagen(nn.Module):
         dynamic_thresholding_percentile = 0.9       # unsure what this was based on perusal of paper
     ):
         super().__init__()
-
-        self.noise_scheduler = GaussianDiffusion(beta_schedule = beta_schedule, timesteps = timesteps)
-        self.num_timesteps = self.noise_scheduler.num_timesteps
 
         # loss
 
@@ -960,10 +959,22 @@ class Imagen(nn.Module):
         # while the rest of the unets are conditioned on the low resolution image produced by previous unet
 
         unets = cast_tuple(unets)
+        num_unets = len(unets)
+
+        # determine noise schedules per unet
+
+        timesteps = cast_tuple(timesteps, num_unets)
+        beta_schedules = cast_tuple(beta_schedules, num_unets)
+
+        self.noise_schedulers = nn.ModuleList([])
+
+        for timestep, beta_schedule in zip(timesteps, beta_schedules):
+            noise_scheduler = GaussianDiffusion(beta_schedule = beta_schedule, timesteps = timestep)
+            self.noise_schedulers.append(noise_scheduler)
 
         # whether to use learned variance, defaults to True for the first unet in the cascade, as in paper
 
-        learned_variance = pad_tuple_to_length(cast_tuple(learned_variance), len(unets), fillvalue = False)
+        learned_variance = pad_tuple_to_length(cast_tuple(learned_variance), num_unets, fillvalue = False)
         self.learned_variance = learned_variance
         self.vb_loss_weight = vb_loss_weight
 
@@ -994,18 +1005,14 @@ class Imagen(nn.Module):
 
         # unet image sizes
 
-        assert len(self.unets) == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
+        assert num_unets == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
         self.image_sizes = cast_tuple(image_sizes)
-        self.sample_channels = cast_tuple(self.channels, len(image_sizes))
-
-        # random crop sizes (for super-resoluting unets at the end of cascade?)
-
-        self.random_crop_sizes = cast_tuple(random_crop_sizes, len(image_sizes))
+        self.sample_channels = cast_tuple(self.channels, num_unets)
 
         # cascading ddpm related stuff
 
         lowres_conditions = tuple(map(lambda t: t.lowres_cond, self.unets))
-        assert lowres_conditions == (False, *((True,) * (len(self.unets) - 1))), 'the first unet must be unconditioned (by low resolution image), and the rest of the unets must have `lowres_cond` set to True'
+        assert lowres_conditions == (False, *((True,) * (num_unets - 1))), 'the first unet must be unconditioned (by low resolution image), and the rest of the unets must have `lowres_cond` set to True'
 
         self.lowres_sample_noise_level = lowres_sample_noise_level
 
@@ -1050,7 +1057,7 @@ class Imagen(nn.Module):
         for unet, device in zip(self.unets, devices):
             unet.to(device)
 
-    def p_mean_variance(self, unet, x, t, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, clip_denoised = True, learned_variance = False, cond_scale = 1., model_output = None):
+    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, clip_denoised = True, learned_variance = False, cond_scale = 1., model_output = None):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
         pred = default(model_output, lambda: unet.forward_with_cond_scale(x, t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times))
@@ -1058,7 +1065,7 @@ class Imagen(nn.Module):
         if learned_variance:
             pred, var_interp_frac_unnormalized = pred.chunk(2, dim = 1)
 
-        x_recon = self.noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
+        x_recon = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
 
         if clip_denoised:
             # following pseudocode in appendix
@@ -1074,14 +1081,14 @@ class Imagen(nn.Module):
             s = s.view(-1, *((1,) * (x_recon.ndim - 1)))
             x_recon = x_recon.clamp(-s, s) / s
 
-        model_mean, posterior_variance, posterior_log_variance = self.noise_scheduler.q_posterior(x_start=x_recon, x_t=x, t=t)
+        model_mean, posterior_variance, posterior_log_variance = noise_scheduler.q_posterior(x_start=x_recon, x_t=x, t=t)
 
         if learned_variance:
             # if learned variance, posterio variance and posterior log variance are predicted by the network
             # by an interpolation of the max and min log beta values
             # eq 15 - https://arxiv.org/abs/2102.09672
-            min_log = extract(self.noise_scheduler.posterior_log_variance_clipped, t, x.shape)
-            max_log = extract(torch.log(self.noise_scheduler.betas), t, x.shape)
+            min_log = extract(noise_scheduler.posterior_log_variance_clipped, t, x.shape)
+            max_log = extract(torch.log(noise_scheduler.betas), t, x.shape)
             var_interp_frac = unnormalize_zero_to_one(var_interp_frac_unnormalized)
 
             posterior_log_variance = var_interp_frac * max_log + (1 - var_interp_frac) * min_log
@@ -1090,111 +1097,41 @@ class Imagen(nn.Module):
         return model_mean, posterior_variance, posterior_log_variance
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True, repeat_noise = False):
+    def p_sample(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True, repeat_noise = False):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised, learned_variance = learned_variance)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised, learned_variance = learned_variance)
         noise = noise_like(x.shape, device, repeat_noise)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, unet, shape, learned_variance = False, clip_denoised = True, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
-        device = self.noise_scheduler.betas.device
+    def p_sample_loop(self, unet, shape, *, noise_scheduler, learned_variance = False, clip_denoised = True, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
+        device = noise_scheduler.betas.device
 
-        b = shape[0]
+        batch = shape[0]
         img = torch.randn(shape, device = device)
         lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
 
-        for i in tqdm(reversed(range(0, self.num_timesteps)), desc = 'sampling loop time step', total = self.num_timesteps):
+        num_timesteps = noise_scheduler.num_timesteps
+
+        for i in tqdm(reversed(range(0, num_timesteps)), desc = 'sampling loop time step', total = num_timesteps):
             img = self.p_sample(
                 unet,
                 img,
-                torch.full((b,), i, device = device, dtype = torch.long),
+                torch.full((batch,), i, device = device, dtype = torch.long),
                 text_embeds = text_embeds,
                 text_mask = text_mask,
                 cond_scale = cond_scale,
                 lowres_cond_img = lowres_cond_img,
                 lowres_noise_times = lowres_noise_times,
+                noise_scheduler = noise_scheduler,
                 learned_variance = learned_variance,
                 clip_denoised = clip_denoised
             )
 
         unnormalize_img = self.unnormalize_img(img)
         return unnormalize_img
-
-    def p_losses(self, unet, x_start, times, *, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False):
-        noise = default(noise, lambda: torch.randn_like(x_start))
-
-        # normalize to [-1, 1]
-
-        x_start = self.normalize_img(x_start)
-        lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
-
-        # get x_t
-
-        x_noisy = self.noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
-
-        # also noise the lowres conditioning image
-        # at sample time, they then fix the noise level of 0.1 - 0.3
-
-        lowres_cond_img_noisy = None
-        if exists(lowres_cond_img):
-            lowres_aug_times = default(lowres_aug_times, times)
-            lowres_cond_img_noisy = self.noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
-
-        # get prediction
-
-        model_output = unet(
-            x_noisy,
-            times,
-            text_embeds = text_embeds,
-            text_mask = text_mask,
-            lowres_noise_times = lowres_aug_times,
-            lowres_cond_img = lowres_cond_img_noisy,
-            cond_drop_prob = self.cond_drop_prob,
-        )
-
-        if learned_variance:
-            pred, _ = model_output.chunk(2, dim = 1)
-        else:
-            pred = model_output
-
-        loss = self.loss_fn(pred, noise)
-
-        if not learned_variance:
-            # return simple loss if not using learned variance
-            return loss
-
-        # most of the code below is transcribed from
-        # https://github.com/hojonathanho/diffusion/blob/master/diffusion_tf/diffusion_utils_2.py
-        # the Improved DDPM paper then further modified it so that the mean is detached (shown a couple lines before), and weighted to be smaller than the l1 or l2 "simple" loss
-        # it is questionable whether this is really needed, looking at some of the figures in the paper, but may as well stay faithful to their implementation
-
-        # if learning the variance, also include the extra weight kl loss
-
-        true_mean, _, true_log_variance_clipped = self.noise_scheduler.q_posterior(x_start = x_start, x_t = x_noisy, t = times)
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x_noisy, t = times, clip_denoised = clip_denoised, learned_variance = True, model_output = model_output)
-
-        # kl loss with detached model predicted mean, for stability reasons as in paper
-
-        detached_model_mean = model_mean.detach()
-
-        kl = normal_kl(true_mean, true_log_variance_clipped, detached_model_mean, model_log_variance)
-        kl = meanflat(kl) * NAT
-
-        decoder_nll = -discretized_gaussian_log_likelihood(x_start, means = detached_model_mean, log_scales = 0.5 * model_log_variance)
-        decoder_nll = meanflat(decoder_nll) * NAT
-
-        # at the first timestep return the decoder NLL, otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
-
-        vb_losses = torch.where(times == 0, decoder_nll, kl)
-
-        # weight the vb loss smaller, for stability, as in the paper (recommended 0.001)
-
-        vb_loss = vb_losses.mean() * self.vb_loss_weight
-
-        return loss + vb_loss
 
     @torch.no_grad()
     @eval_decorator
@@ -1226,19 +1163,20 @@ class Imagen(nn.Module):
         device = next(self.parameters()).device
 
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
-        lowres_noise_times = torch.full((batch_size,), int(lowres_sample_noise_level * self.num_timesteps), device = device, dtype = torch.long)
 
-        for unet_number, unet, channel, image_size, learned_variance in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.learned_variance)):
+        for unet_number, unet, channel, image_size, learned_variance, noise_scheduler in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.learned_variance, self.noise_schedulers)):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
 
             with context:
-                lowres_cond_img = None
+                lowres_cond_img = lowres_noise_times = None
                 shape = (batch_size, channel, image_size, image_size)
 
                 if unet.lowres_cond:
+                    lowres_noise_times = torch.full((batch_size,), int(lowres_sample_noise_level * noise_scheduler.num_timesteps), device = device, dtype = torch.long)
+
                     lowres_cond_img = resize_image_to(img, image_size)
-                    lowres_cond_img = self.noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
+                    lowres_cond_img = noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 shape = (batch_size, self.channels, image_size, image_size)
 
@@ -1251,13 +1189,87 @@ class Imagen(nn.Module):
                     learned_variance = learned_variance,
                     clip_denoised = True,
                     lowres_cond_img = lowres_cond_img,
-                    lowres_noise_times = lowres_noise_times
+                    lowres_noise_times = lowres_noise_times,
+                    noise_scheduler = noise_scheduler
                 )
 
             if exists(stop_at_unet_number) and stop_at_unet_number == unet_number:
                 break
 
         return img
+
+    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False):
+        noise = default(noise, lambda: torch.randn_like(x_start))
+
+        # normalize to [-1, 1]
+
+        x_start = self.normalize_img(x_start)
+        lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
+
+        # get x_t
+
+        x_noisy = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
+
+        # also noise the lowres conditioning image
+        # at sample time, they then fix the noise level of 0.1 - 0.3
+
+        lowres_cond_img_noisy = None
+        if exists(lowres_cond_img):
+            lowres_aug_times = default(lowres_aug_times, times)
+            lowres_cond_img_noisy = noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+
+        # get prediction
+
+        model_output = unet(
+            x_noisy,
+            times,
+            text_embeds = text_embeds,
+            text_mask = text_mask,
+            lowres_noise_times = lowres_aug_times,
+            lowres_cond_img = lowres_cond_img_noisy,
+            cond_drop_prob = self.cond_drop_prob,
+        )
+
+        if learned_variance:
+            pred, _ = model_output.chunk(2, dim = 1)
+        else:
+            pred = model_output
+
+        loss = self.loss_fn(pred, noise)
+
+        if not learned_variance:
+            # return simple loss if not using learned variance
+            return loss
+
+        # most of the code below is transcribed from
+        # https://github.com/hojonathanho/diffusion/blob/master/diffusion_tf/diffusion_utils_2.py
+        # the Improved DDPM paper then further modified it so that the mean is detached (shown a couple lines before), and weighted to be smaller than the l1 or l2 "simple" loss
+        # it is questionable whether this is really needed, looking at some of the figures in the paper, but may as well stay faithful to their implementation
+
+        # if learning the variance, also include the extra weight kl loss
+
+        true_mean, _, true_log_variance_clipped = noise_scheduler.q_posterior(x_start = x_start, x_t = x_noisy, t = times)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x_noisy, t = times, noise_scheduler = noise_scheduler, clip_denoised = clip_denoised, learned_variance = True, model_output = model_output)
+
+        # kl loss with detached model predicted mean, for stability reasons as in paper
+
+        detached_model_mean = model_mean.detach()
+
+        kl = normal_kl(true_mean, true_log_variance_clipped, detached_model_mean, model_log_variance)
+        kl = meanflat(kl) * NAT
+
+        decoder_nll = -discretized_gaussian_log_likelihood(x_start, means = detached_model_mean, log_scales = 0.5 * model_log_variance)
+        decoder_nll = meanflat(decoder_nll) * NAT
+
+        # at the first timestep return the decoder NLL, otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+
+        vb_losses = torch.where(times == 0, decoder_nll, kl)
+
+        # weight the vb loss smaller, for stability, as in the paper (recommended 0.001)
+
+        vb_loss = vb_losses.mean() * self.vb_loss_weight
+
+        return loss + vb_loss
 
     def forward(
         self,
@@ -1273,16 +1285,16 @@ class Imagen(nn.Module):
         
         unet = self.get_unet(unet_number)
 
+        noise_scheduler     = self.noise_schedulers[unet_index]
         target_image_size   = self.image_sizes[unet_index]
         prev_image_size     = self.image_sizes[unet_index - 1] if unet_index > 0 else None
-        random_crop_size    = self.random_crop_sizes[unet_index]
         learned_variance    = self.learned_variance[unet_index]
         b, c, h, w, device, = *image.shape, image.device
 
         check_shape(image, 'b c h w', c = self.channels)
         assert h >= target_image_size and w >= target_image_size
 
-        times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
+        times = torch.randint(0, noise_scheduler.num_timesteps, (b,), device = device, dtype = torch.long)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
@@ -1297,8 +1309,8 @@ class Imagen(nn.Module):
         if exists(prev_image_size):
             lowres_cond_img = resize_image_to(image, prev_image_size)
             lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
-            lowres_aug_times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
+            lowres_aug_times = torch.randint(0, noise_scheduler.num_timesteps, (b,), device = device, dtype = torch.long)
 
         image = resize_image_to(image, target_image_size)
 
-        return self.p_losses(unet, image, times, text_embeds = text_embeds, text_mask = text_masks, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, learned_variance = learned_variance)
+        return self.p_losses(unet, image, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, learned_variance = learned_variance)
