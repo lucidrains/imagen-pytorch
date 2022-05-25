@@ -79,6 +79,7 @@ images.shape # (3, 3, 256, 256)
 - [ ] add the noise level conditioning with the pseudocode in appendix, and figure out what is this sweep they do at inference time
 - [ ] port over some training code from DALLE2
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
+- [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages
 
 ## Citations
 
