@@ -104,8 +104,16 @@ def t5_encode_text(texts, name = 't5-small'):
     attn_mask = encoded.attention_mask.to(device)
 
     t5.eval()
+
+    config = T5_CONFIGS[name]
+    src = config['src']
+
     with torch.no_grad():
-        output = t5(input_ids = input_ids, attention_mask = attn_mask) # too lazy to figure out how to make it work without decoder inputs
-        encoded_text = output.last_hidden_state.detach()
+        if src == 't5':
+            output = t5(input_ids = input_ids, attention_mask = attn_mask)
+            encoded_text = output.last_hidden_state.detach()
+        elif src == 'auto':
+            output = t5(input_ids = input_ids, attention_mask = attn_mask, decoder_input_ids = input_ids[:, :1])
+            encoded_text = output.encoder_last_hidden_state.detach()
 
     return encoded_text, attn_mask.bool()

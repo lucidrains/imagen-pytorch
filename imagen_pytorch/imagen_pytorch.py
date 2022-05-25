@@ -601,6 +601,7 @@ class Unet(nn.Module):
         *,
         image_embed_dim = 1024,
         text_embed_dim = get_encoded_dim(DEFAULT_T5_NAME),
+        num_resnet_blocks = 1,
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
@@ -706,6 +707,7 @@ class Unet(nn.Module):
 
         # resnet block klass
 
+        num_resnet_blocks = cast_tuple(num_resnet_blocks, len(in_out))
         resnet_groups = cast_tuple(resnet_groups, len(in_out))
 
         assert len(resnet_groups) == len(in_out)
@@ -722,7 +724,7 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
-        for ind, ((dim_in, dim_out), groups) in enumerate(zip(in_out, resnet_groups)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups) in enumerate(zip(in_out, num_resnet_blocks, resnet_groups)):
             is_first = ind == 0
             is_last = ind >= (num_resolutions - 1)
             layer_cond_dim = cond_dim if not is_first else None
@@ -730,7 +732,7 @@ class Unet(nn.Module):
             self.downs.append(nn.ModuleList([
                 ResnetBlock(dim_in, dim_out, time_cond_dim = time_cond_dim, groups = groups),
                 Residual(LinearAttention(dim_out, **attn_kwargs)) if sparse_attn else nn.Identity(),
-                ResnetBlock(dim_out, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
+                nn.ModuleList([ResnetBlock(dim_out, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
             ]))
 
@@ -740,14 +742,14 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
-        for ind, ((dim_in, dim_out), groups) in enumerate(zip(reversed(in_out[1:]), reversed(resnet_groups))):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups) in enumerate(zip(reversed(in_out[1:]), reversed(num_resnet_blocks), reversed(resnet_groups))):
             is_last = ind >= (num_resolutions - 2)
             layer_cond_dim = cond_dim if not is_last else None
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 Residual(LinearAttention(dim_in, **attn_kwargs)) if sparse_attn else nn.Identity(),
-                ResnetBlock(dim_in, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
+                nn.ModuleList([ResnetBlock(dim_in, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 Upsample(dim_in)
             ]))
 
@@ -891,10 +893,13 @@ class Unet(nn.Module):
 
         hiddens = []
 
-        for block1, sparse_attn, block2, downsample in self.downs:
-            x = block1(x, c, t)
+        for init_block, sparse_attn, resnet_blocks, downsample in self.downs:
+            x = init_block(x, c, t)
             x = sparse_attn(x)
-            x = block2(x, c, t)
+
+            for resnet_block in resnet_blocks:
+                x = resnet_block(x, c, t)
+
             hiddens.append(x)
             x = downsample(x)
 
@@ -905,11 +910,14 @@ class Unet(nn.Module):
 
         x = self.mid_block2(x, mid_c, t)
 
-        for block1, sparse_attn, block2, upsample in self.ups:
+        for init_block, sparse_attn, resnet_blocks, upsample in self.ups:
             x = torch.cat((x, hiddens.pop()), dim=1)
-            x = block1(x, c, t)
+            x = init_block(x, c, t)
             x = sparse_attn(x)
-            x = block2(x, c, t)
+
+            for resnet_block in resnet_blocks:
+                x = resnet_block(x, c, t)
+
             x = upsample(x)
 
         return self.final_conv(x)
@@ -962,7 +970,7 @@ class Imagen(BaseGaussianDiffusion):
         # get text encoder
 
         self.text_encoder_name = text_encoder_name
-        text_embed_dim = get_encoded_dim(text_encoder_name)
+        self.text_embed_dim = get_encoded_dim(text_encoder_name)
 
         # construct unets
 
@@ -977,7 +985,7 @@ class Imagen(BaseGaussianDiffusion):
             one_unet = one_unet.cast_model_parameters(
                 lowres_cond = not is_first,
                 cond_on_text = self.condition_on_text,
-                text_embed_dim = text_embed_dim if self.condition_on_text else None,
+                text_embed_dim = self.text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
                 channels_out = unet_channels_out
             )
@@ -1211,6 +1219,7 @@ class Imagen(BaseGaussianDiffusion):
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
+        assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
 
         img = None
         is_cuda = next(self.parameters()).is_cuda
@@ -1281,6 +1290,8 @@ class Imagen(BaseGaussianDiffusion):
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
+
+        assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
