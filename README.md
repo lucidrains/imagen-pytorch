@@ -72,7 +72,7 @@ images.shape # (3, 3, 256, 256)
 
 - [x] use huggingface transformers for T5-small text embeddings
 - [x] add dynamic thresholding
-- [ ] add dynamic thresholding DALLE2 and video-diffusion repository as well
+- [x] add dynamic thresholding DALLE2 and video-diffusion repository as well
 - [ ] allow for one to set T5-large (and perhaps small factory method to take in any huggingface transformer)
 - [ ] separate unet into base unet and SR3 unet
 - [ ] build whatever efficient unet they came up with
