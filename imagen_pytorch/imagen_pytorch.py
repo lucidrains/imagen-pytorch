@@ -326,7 +326,6 @@ class Attention(nn.Module):
         *,
         dim_head = 64,
         heads = 8,
-        dropout = 0.,
         causal = False,
         rotary_emb = None
     ):
@@ -337,7 +336,6 @@ class Attention(nn.Module):
 
         self.causal = causal
         self.norm = LayerNorm(dim)
-        self.dropout = nn.Dropout(dropout)
 
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
@@ -397,7 +395,6 @@ class Attention(nn.Module):
 
         sim = sim - sim.amax(dim = -1, keepdim = True).detach()
         attn = sim.softmax(dim = -1)
-        attn = self.dropout(attn)
 
         # aggregate values
 
@@ -416,8 +413,6 @@ class CausalTransformer(nn.Module):
         heads = 8,
         ff_mult = 4,
         norm_out = True,
-        attn_dropout = 0.,
-        ff_dropout = 0.,
         final_proj = True,
         normformer = False,
         rotary_emb = True
@@ -430,8 +425,8 @@ class CausalTransformer(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                Attention(dim = dim, causal = True, dim_head = dim_head, heads = heads, dropout = attn_dropout, rotary_emb = rotary_emb),
-                FeedForward(dim = dim, mult = ff_mult, dropout = ff_dropout, post_activation_norm = normformer)
+                Attention(dim = dim, causal = True, dim_head = dim_head, heads = heads, rotary_emb = rotary_emb),
+                FeedForward(dim = dim, mult = ff_mult, post_activation_norm = normformer)
             ]))
 
         self.norm = LayerNorm(dim) if norm_out else nn.Identity()  # unclear in paper whether they projected after the classic layer norm for the final denoised image embedding, or just had the transformer output it directly: plan on offering both options
@@ -556,7 +551,6 @@ class CrossAttention(nn.Module):
         context_dim = None,
         dim_head = 64,
         heads = 8,
-        dropout = 0.,
         norm_context = False
     ):
         super().__init__()
@@ -568,7 +562,6 @@ class CrossAttention(nn.Module):
 
         self.norm = LayerNorm(dim)
         self.norm_context = LayerNorm(context_dim) if norm_context else nn.Identity()
-        self.dropout = nn.Dropout(dropout)
 
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
