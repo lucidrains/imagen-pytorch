@@ -1,7 +1,10 @@
 import json
 from pydantic import BaseModel, validator, root_validator
-from typing import List, Iterable, Optional, Union, Tuple, Dict, Any, Literal
+from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
+from enum import Enum
+
 from imagen_pytorch.imagen_pytorch import Imagen, Unet
+from imagen_pytorch.t5 import DEFAULT_T5_NAME, get_encoded_dim
 
 # helper functions
 
@@ -14,12 +17,18 @@ def default(val, d):
 def ListOrTuple(inner_type):
     return Union[List[inner_type], Tuple[inner_type]]
 
+# noise schedule
+
+class BetaSchedule(Enum):
+    cosine = 'cosine'
+    linear = 'linear'
+
 # imagen pydantic classes
 
 class UnetConfig(BaseModel):
     dim: int
     dim_mults: ListOrTuple(int)
-    text_embed_dim: int = 1024
+    text_embed_dim: int = get_encoded_dim(DEFAULT_T5_NAME)
     cond_dim: int = None
     channels: int = 3
     attn_dim_head: int = 32
@@ -31,10 +40,11 @@ class UnetConfig(BaseModel):
 class ImagenConfig(BaseModel):
     unets: ListOrTuple(UnetConfig)
     image_sizes: ListOrTuple(int)
+    text_encoder_name: str = DEFAULT_T5_NAME
     channels: int = 3
     timesteps: int = 1000
     loss_type: str = 'l2'
-    beta_schedule: Literal['cosine', 'linear'] = 'cosine'
+    beta_schedule: BetaSchedule = 'cosine'
     learned_variance: bool = True
     cond_drop_prob: float = 0.5
 

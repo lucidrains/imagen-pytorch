@@ -22,7 +22,7 @@ import kornia.augmentation as K
 
 from resize_right import resize
 
-from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim
+from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
 # constants
 
@@ -600,7 +600,7 @@ class Unet(nn.Module):
         dim,
         *,
         image_embed_dim = 1024,
-        text_embed_dim = 512,
+        text_embed_dim = get_encoded_dim(DEFAULT_T5_NAME),
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
@@ -920,7 +920,7 @@ class Imagen(BaseGaussianDiffusion):
         unets,
         *,
         image_sizes,                                # for cascading ddpm, image size at each stage
-        text_encoder_name = 't5-small',
+        text_encoder_name = DEFAULT_T5_NAME,
         channels = 3,
         timesteps = 1000,
         cond_drop_prob = 0.1,

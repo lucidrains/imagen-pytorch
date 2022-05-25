@@ -8,6 +8,8 @@ def exists(val):
 
 MAX_LENGTH = 256
 
+DEFAULT_T5_NAME = 't5-base'
+
 T5_CONFIGS = {
     't5-small': {
         'dim': 512
