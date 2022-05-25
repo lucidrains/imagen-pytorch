@@ -84,9 +84,9 @@ images.shape # (3, 3, 256, 256)
 ## Citations
 
 ```bibtex
-@misc{Saharia2022,
-    title   = {Imagen: unprecedented photorealism × deep level of language understanding}, 
-    author  = {Chitwan Saharia*, William Chan*, Saurabh Saxena†, Lala Li†, Jay Whang†, Emily Denton, Seyed Kamyar Seyed Ghasemipour, Burcu Karagol Ayan, S. Sara Mahdavi, Rapha Gontijo Lopes, Tim Salimans, Jonathan Ho†, David Fleet†, Mohammad Norouzi*},
+@inproceedings{Saharia2022PhotorealisticTD,
+    title   = {Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding},
+    author  = {Chitwan Saharia and William Chan and Saurabh Saxena and Lala Li and Jay Whang and Emily L. Denton and Seyed Kamyar Seyed Ghasemipour and Burcu Karagol Ayan and Seyedeh Sara Mahdavi and Raphael Gontijo Lopes and Tim Salimans and Jonathan Ho and David Fleet and Mohammad Norouzi},
     year    = {2022}
 }
 ```
