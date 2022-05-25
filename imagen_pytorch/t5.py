@@ -12,6 +12,9 @@ T5_CONFIGS = {
     't5-small': {
         'dim': 512
     },
+    't5-base': {
+        'dim': 768
+    },
     't5-large': {
         'dim': 1024
     }
