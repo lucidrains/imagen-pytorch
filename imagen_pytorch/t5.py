@@ -72,5 +72,6 @@ def t5_encode_text(texts, name = 't5-small'):
     t5.eval()
     with torch.no_grad():
         output = t5(input_ids = input_ids, attention_mask = attn_mask, decoder_input_ids = input_ids[:, :1]) # too lazy to figure out how to make it work without decoder inputs
+        encoded_text = output.encoder_last_hidden_state.detach()
 
-    return output.encoder_last_hidden_state
+    return encoded_text, attn_mask.bool()

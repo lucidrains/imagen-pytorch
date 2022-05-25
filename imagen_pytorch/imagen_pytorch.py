@@ -71,11 +71,6 @@ def eval_decorator(fn):
         return out
     return inner
 
-def is_list_str(x):
-    if not isinstance(x, (list, tuple)):
-        return False
-    return all([type(el) == str for el in x])
-
 def pad_tuple_to_length(t, length, fillvalue = None):
     remain_length = length - len(t)
     if remain_length <= 0:
@@ -749,6 +744,17 @@ class Unet(nn.Module):
             nn.GELU()
         )
 
+        self.to_lowres_time_hiddens = None
+        if lowres_cond:
+            self.to_lowres_time_hiddens = nn.Sequential(
+                SinusoidalPosEmb(dim),
+                nn.Linear(dim, time_cond_dim),
+                nn.GELU()
+            )
+            time_cond_dim *= 2
+
+        # project to time tokens as well as time hiddens
+
         self.to_time_tokens = nn.Sequential(
             nn.Linear(time_cond_dim, cond_dim * num_time_tokens),
             Rearrange('b (r d) -> b r d', r = num_time_tokens)
@@ -884,17 +890,17 @@ class Unet(nn.Module):
         time,
         *,
         lowres_cond_img = None,
+        lowres_noise_times = None,
         text_embeds = None,
         text_mask = None,
-        cond_drop_prob = 0.,
-        blur_sigma = None,
-        blur_kernel_size = None
+        cond_drop_prob = 0.
     ):
         batch_size, device = x.shape[0], x.device
 
         # add low resolution conditioning, if present
 
         assert not (self.lowres_cond and not exists(lowres_cond_img)), 'low resolution conditioning image must be present'
+        assert not (self.lowres_cond and not exists(lowres_noise_times)), 'low resolution conditoining noise time must be present'
 
         if exists(lowres_cond_img):
             x = torch.cat((x, lowres_cond_img), dim = 1)
@@ -906,6 +912,14 @@ class Unet(nn.Module):
         # time conditioning
 
         time_hiddens = self.to_time_hiddens(time)
+
+        # add the time conditioning for the noised lowres conditioning, if needed
+
+        if exists(self.to_lowres_time_hiddens):
+            lowres_time_hiddens = self.to_lowres_time_hiddens(lowres_noise_times)
+            time_hiddens = torch.cat((time_hiddens, lowres_time_hiddens), dim = -1)
+
+        # derive time tokens
 
         time_tokens = self.to_time_tokens(time_hiddens)
         t = self.to_time_cond(time_hiddens)
@@ -986,40 +1000,6 @@ class Unet(nn.Module):
 
         return self.final_conv(x)
 
-class LowresConditioner(nn.Module):
-    def __init__(
-        self,
-        downsample_first = True,
-        blur_sigma = 0.1,
-        blur_kernel_size = 3,
-    ):
-        super().__init__()
-        self.downsample_first = downsample_first
-        self.blur_sigma = blur_sigma
-        self.blur_kernel_size = blur_kernel_size
-
-    def forward(
-        self,
-        cond_fmap,
-        *,
-        target_image_size,
-        downsample_image_size = None,
-        blur_sigma = None,
-        blur_kernel_size = None
-    ):
-        if self.training and self.downsample_first and exists(downsample_image_size):
-            cond_fmap = resize_image_to(cond_fmap, downsample_image_size)
-
-        if self.training:
-            # when training, blur the low resolution conditional image
-            blur_sigma = default(blur_sigma, self.blur_sigma)
-            blur_kernel_size = default(blur_kernel_size, self.blur_kernel_size)
-            cond_fmap = gaussian_blur2d(cond_fmap, cast_tuple(blur_kernel_size, 2), cast_tuple(blur_sigma, 2))
-
-        cond_fmap = resize_image_to(cond_fmap, target_image_size)
-
-        return cond_fmap
-
 class Imagen(BaseGaussianDiffusion):
     def __init__(
         self,
@@ -1032,15 +1012,11 @@ class Imagen(BaseGaussianDiffusion):
         cond_drop_prob = 0.1,
         loss_type = 'l2',
         beta_schedule = 'cosine',
-        predict_x_start = False,
         image_sizes = None,                         # for cascading ddpm, image size at each stage
         random_crop_sizes = None,                   # whether to random crop the image at that stage in the cascade (super resoluting convolutions at the end may be able to generalize on smaller crops)
-        lowres_downsample_first = True,             # cascading ddpm - resizes to lower resolution, then to next conditional resolution + blur
-        blur_sigma = 0.1,                           # cascading ddpm - blur sigma
-        blur_kernel_size = 3,                       # cascading ddpm - blur kernel size
+        lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         condition_on_text = True,
         clip_denoised = True,
-        clip_x_start = True,
         learned_variance = True,
         vb_loss_weight = 0.001,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
@@ -1116,20 +1092,12 @@ class Imagen(BaseGaussianDiffusion):
 
         self.random_crop_sizes = cast_tuple(random_crop_sizes, len(image_sizes))
 
-        # predict x0 config
-
-        self.predict_x_start = cast_tuple(predict_x_start, len(unets))
-
         # cascading ddpm related stuff
 
         lowres_conditions = tuple(map(lambda t: t.lowres_cond, self.unets))
         assert lowres_conditions == (False, *((True,) * (len(self.unets) - 1))), 'the first unet must be unconditioned (by low resolution image), and the rest of the unets must have `lowres_cond` set to True'
 
-        self.to_lowres_cond = LowresConditioner(
-            downsample_first = lowres_downsample_first,
-            blur_sigma = blur_sigma,
-            blur_kernel_size = blur_kernel_size,
-        )
+        self.lowres_sample_noise_level = lowres_sample_noise_level
 
         # classifier free guidance
 
@@ -1139,12 +1107,13 @@ class Imagen(BaseGaussianDiffusion):
         # whether to clip when sampling
 
         self.clip_denoised = clip_denoised
-        self.clip_x_start = clip_x_start
 
         # normalize and unnormalize image functions
 
         self.normalize_img = normalize_neg_one_to_one if auto_normalize_img else identity
         self.unnormalize_img = unnormalize_zero_to_one if auto_normalize_img else identity
+
+        # dynamic thresholding
 
         self.dynamic_thresholding_percentile = dynamic_thresholding_percentile
 
@@ -1171,18 +1140,15 @@ class Imagen(BaseGaussianDiffusion):
         for unet, device in zip(self.unets, devices):
             unet.to(device)
 
-    def p_mean_variance(self, unet, x, t, text_embeds = None, text_mask = None, lowres_cond_img = None, clip_denoised = True, predict_x_start = False, learned_variance = False, cond_scale = 1., model_output = None):
+    def p_mean_variance(self, unet, x, t, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, clip_denoised = True, learned_variance = False, cond_scale = 1., model_output = None):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
-        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img))
+        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times))
 
         if learned_variance:
             pred, var_interp_frac_unnormalized = pred.chunk(2, dim = 1)
 
-        if predict_x_start:
-            x_recon = pred
-        else:
-            x_recon = self.predict_start_from_noise(x, t = t, noise = pred)
+        x_recon = self.predict_start_from_noise(x, t = t, noise = pred)
 
         if clip_denoised:
             # following pseudocode in appendix
@@ -1214,16 +1180,16 @@ class Imagen(BaseGaussianDiffusion):
         return model_mean, posterior_variance, posterior_log_variance
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, predict_x_start = False, learned_variance = False, clip_denoised = True, repeat_noise = False):
+    def p_sample(self, unet, x, t, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True, repeat_noise = False):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, clip_denoised = clip_denoised, predict_x_start = predict_x_start, learned_variance = learned_variance)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised, learned_variance = learned_variance)
         noise = noise_like(x.shape, device, repeat_noise)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, unet, shape, predict_x_start = False, learned_variance = False, clip_denoised = True, lowres_cond_img = None, text_embeds = None, text_mask = None, cond_scale = 1):
+    def p_sample_loop(self, unet, shape, learned_variance = False, clip_denoised = True, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
         device = self.betas.device
 
         b = shape[0]
@@ -1239,7 +1205,7 @@ class Imagen(BaseGaussianDiffusion):
                 text_mask = text_mask,
                 cond_scale = cond_scale,
                 lowres_cond_img = lowres_cond_img,
-                predict_x_start = predict_x_start,
+                lowres_noise_times = lowres_noise_times,
                 learned_variance = learned_variance,
                 clip_denoised = clip_denoised
             )
@@ -1247,7 +1213,7 @@ class Imagen(BaseGaussianDiffusion):
         unnormalize_img = self.unnormalize_img(img)
         return unnormalize_img
 
-    def p_losses(self, unet, x_start, times, *, lowres_cond_img = None, text_embeds = None, text_mask = None, predict_x_start = False, noise = None, learned_variance = False, clip_denoised = False):
+    def p_losses(self, unet, x_start, times, *, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
@@ -1259,12 +1225,23 @@ class Imagen(BaseGaussianDiffusion):
 
         x_noisy = self.q_sample(x_start = x_start, t = times, noise = noise)
 
+        # also noise the lowres conditioning image
+        # at sample time, they then fix the noise level of 0.1 - 0.3
+
+        lowres_cond_img_noisy = None
+        if exists(lowres_cond_img):
+            lowres_aug_times = default(lowres_aug_times, times)
+            lowres_cond_img_noisy = self.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+
+        # get prediction
+
         model_output = unet(
             x_noisy,
             times,
             text_embeds = text_embeds,
             text_mask = text_mask,
-            lowres_cond_img = lowres_cond_img,
+            lowres_noise_times = lowres_aug_times,
+            lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
         )
 
@@ -1273,9 +1250,7 @@ class Imagen(BaseGaussianDiffusion):
         else:
             pred = model_output
 
-        target = noise if not predict_x_start else x_start
-
-        loss = self.loss_fn(pred, target)
+        loss = self.loss_fn(pred, noise)
 
         if not learned_variance:
             # return simple loss if not using learned variance
@@ -1316,7 +1291,7 @@ class Imagen(BaseGaussianDiffusion):
     def sample(
         self,
         texts: List[str] = None,
-        text_mask = None,
+        text_masks = None,
         text_embeds = None,
         batch_size = 1,
         cond_scale = 1.,
@@ -1325,8 +1300,8 @@ class Imagen(BaseGaussianDiffusion):
         device = next(self.parameters()).device
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds = t5_encode_text(texts, name = self.text_encoder_name)
-            text_embeds.to(device)
+            text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
+            text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
         if not self.unconditional:
             batch_size = text_embeds.shape[0]
@@ -1336,8 +1311,11 @@ class Imagen(BaseGaussianDiffusion):
 
         img = None
         is_cuda = next(self.parameters()).is_cuda
+        device = next(self.parameters()).device
 
-        for unet_number, unet, channel, image_size, predict_x_start, learned_variance in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.predict_x_start, self.learned_variance)):
+        lowres_noise_times = torch.full((batch_size,), self.lowres_sample_noise_level, device = device, dtype = torch.long)
+
+        for unet_number, unet, channel, image_size, learned_variance in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.learned_variance)):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
 
@@ -1346,7 +1324,8 @@ class Imagen(BaseGaussianDiffusion):
                 shape = (batch_size, channel, image_size, image_size)
 
                 if unet.lowres_cond:
-                    lowres_cond_img = self.to_lowres_cond(img, target_image_size = image_size)
+                    lowres_cond_img = resize_image_to(img, image_size)
+                    lowres_cond_img = self.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 shape = (batch_size, self.channels, image_size, image_size)
 
@@ -1354,12 +1333,12 @@ class Imagen(BaseGaussianDiffusion):
                     unet,
                     shape,
                     text_embeds = text_embeds,
-                    text_mask = text_mask,
+                    text_mask = text_masks,
                     cond_scale = cond_scale,
-                    predict_x_start = predict_x_start,
                     learned_variance = learned_variance,
                     clip_denoised = True,
-                    lowres_cond_img = lowres_cond_img
+                    lowres_cond_img = lowres_cond_img,
+                    lowres_noise_times = lowres_noise_times
                 )
 
             if exists(stop_at_unet_number) and stop_at_unet_number == unet_number:
@@ -1372,7 +1351,7 @@ class Imagen(BaseGaussianDiffusion):
         image,
         texts: List[str] = None,
         text_embeds = None,
-        text_mask = None,
+        text_masks = None,
         unet_number = None
     ):
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
@@ -1382,7 +1361,7 @@ class Imagen(BaseGaussianDiffusion):
         unet = self.get_unet(unet_number)
 
         target_image_size   = self.image_sizes[unet_index]
-        predict_x_start     = self.predict_x_start[unet_index]
+        prev_image_size     = self.image_sizes[unet_index - 1] if unet_index > 0 else None
         random_crop_size    = self.random_crop_sizes[unet_index]
         learned_variance    = self.learned_variance[unet_index]
         b, c, h, w, device, = *image.shape, image.device
@@ -1393,13 +1372,18 @@ class Imagen(BaseGaussianDiffusion):
         times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds = t5_encode_text(texts, name = self.text_encoder_name)
-            text_embds.to(image.device)
+            text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
+            text_embeds, text_masks = map(lambda t: t.to(image.device), (text_embeds, text_masks))
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
 
-        lowres_cond_img = self.to_lowres_cond(image, target_image_size = target_image_size, downsample_image_size = self.image_sizes[unet_index - 1]) if unet_number > 1 else None
+        lowres_cond_img = lowres_aug_times = None
+        if exists(prev_image_size):
+            lowres_cond_img = resize_image_to(image, prev_image_size)
+            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
+            lowres_aug_times = torch.randint(0, self.num_timesteps, (b,), device = device, dtype = torch.long)
+
         image = resize_image_to(image, target_image_size)
 
         if exists(random_crop_size):
@@ -1410,4 +1394,4 @@ class Imagen(BaseGaussianDiffusion):
             image = aug(image)
             lowres_cond_img = aug(lowres_cond_img, params = aug._params)
 
-        return self.p_losses(unet, image, times, text_embeds = text_embeds, text_mask = text_mask, lowres_cond_img = lowres_cond_img, predict_x_start = predict_x_start, learned_variance = learned_variance)
+        return self.p_losses(unet, image, times, text_embeds = text_embeds, text_mask = text_masks, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, learned_variance = learned_variance)
