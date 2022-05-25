@@ -1,6 +1,6 @@
 import json
 from pydantic import BaseModel, validator, root_validator
-from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
+from typing import List, Iterable, Optional, Union, Tuple, Dict, Any, Literal
 from imagen_pytorch.imagen_pytorch import Imagen, Unet
 
 # helper functions
@@ -34,7 +34,7 @@ class ImagenConfig(BaseModel):
     channels: int = 3
     timesteps: int = 1000
     loss_type: str = 'l2'
-    beta_schedule: str = 'cosine'
+    beta_schedule: Literal['cosine', 'linear'] = 'cosine'
     learned_variance: bool = True
     cond_drop_prob: float = 0.5
 

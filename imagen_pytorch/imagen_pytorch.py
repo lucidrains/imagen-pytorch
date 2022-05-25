@@ -175,21 +175,6 @@ def linear_beta_schedule(timesteps):
     return torch.linspace(beta_start, beta_end, timesteps, dtype = torch.float64)
 
 
-def quadratic_beta_schedule(timesteps):
-    scale = 1000 / timesteps
-    beta_start = scale * 0.0001
-    beta_end = scale * 0.02
-    return torch.linspace(beta_start**2, beta_end**2, timesteps, dtype = torch.float64) ** 2
-
-
-def sigmoid_beta_schedule(timesteps):
-    scale = 1000 / timesteps
-    beta_start = scale * 0.0001
-    beta_end = scale * 0.02
-    betas = torch.linspace(-6, 6, timesteps, dtype = torch.float64)
-    return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
-
-
 class BaseGaussianDiffusion(nn.Module):
     def __init__(self, *, beta_schedule, timesteps, loss_type):
         super().__init__()
@@ -198,12 +183,6 @@ class BaseGaussianDiffusion(nn.Module):
             betas = cosine_beta_schedule(timesteps)
         elif beta_schedule == "linear":
             betas = linear_beta_schedule(timesteps)
-        elif beta_schedule == "quadratic":
-            betas = quadratic_beta_schedule(timesteps)
-        elif beta_schedule == "jsd":
-            betas = 1.0 / torch.linspace(timesteps, 1, timesteps)
-        elif beta_schedule == "sigmoid":
-            betas = sigmoid_beta_schedule(timesteps)
         else:
             raise NotImplementedError()
 
