@@ -31,6 +31,7 @@ unet1 = Unet(
     dim_mults = (1, 2, 4, 8),
     num_resnet_blocks = 3,
     layer_attns = (False, True, True, True),
+    layer_cross_attns = (False, True, True, True)
 )
 
 unet2 = SRUnet(

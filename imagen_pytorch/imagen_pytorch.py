@@ -668,6 +668,7 @@ class Unet(nn.Module):
         lowres_cond = False, # for cascading diffusion - https://cascaded-diffusion.github.io/
         layer_attns = True,
         attend_at_middle = True, # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
+        layer_cross_attns = True,
         cond_on_text = True,
         max_text_len = 256,
         init_dim = None,
@@ -759,13 +760,17 @@ class Unet(nn.Module):
 
         attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head)
 
+        num_layers = len(in_out)
+
         # resnet block klass
 
-        num_resnet_blocks = cast_tuple(num_resnet_blocks, len(in_out))
-        resnet_groups = cast_tuple(resnet_groups, len(in_out))
-        layer_attns = cast_tuple(layer_attns, len(in_out))
+        num_resnet_blocks = cast_tuple(num_resnet_blocks, num_layers)
+        resnet_groups = cast_tuple(resnet_groups, num_layers)
 
-        assert len(resnet_groups) == len(in_out)
+        layer_attns = cast_tuple(layer_attns, num_layers)
+        layer_cross_attns = cast_tuple(layer_cross_attns, num_layers)
+
+        assert all([layers == num_layers for layers in list(map(len, (resnet_groups, layer_attns, layer_cross_attns)))])
 
         # downsample klass
 
@@ -779,13 +784,13 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn) in enumerate(zip(in_out, num_resnet_blocks, resnet_groups, layer_attns)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(in_out, num_resnet_blocks, resnet_groups, layer_attns, layer_cross_attns)):
             is_first = ind == 0
             is_last = ind >= (num_resolutions - 1)
-            layer_cond_dim = cond_dim if not is_first else None
+            layer_cond_dim = cond_dim if layer_cross_attn else None
 
             self.downs.append(nn.ModuleList([
-                ResnetBlock(dim_in, dim_out, time_cond_dim = time_cond_dim, groups = groups),
+                ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else nn.Identity(),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
@@ -797,9 +802,9 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn) in enumerate(zip(reversed(in_out[1:]), reversed(num_resnet_blocks), reversed(resnet_groups), reversed(layer_attns))):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[1:]), reversed(num_resnet_blocks), reversed(resnet_groups), reversed(layer_attns), reversed(layer_cross_attns))):
             is_last = ind >= (num_resolutions - 2)
-            layer_cond_dim = cond_dim if not is_last else None
+            layer_cond_dim = cond_dim if layer_cross_attn else None
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
