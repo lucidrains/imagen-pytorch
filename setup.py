@@ -18,9 +18,11 @@ setup(
     'denoising-diffusion'
   ],
   install_requires=[
+    'click',
     'einops>=0.4',
     'einops-exts',
     'numpy',
+    'pillow',
     'pydantic',
     'resize-right',
     'sentencepiece',
