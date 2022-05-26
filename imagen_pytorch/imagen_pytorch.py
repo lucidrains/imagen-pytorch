@@ -220,6 +220,17 @@ class GaussianDiffusion(nn.Module):
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
+    def get_learned_posterior_log_variance(self, var_interp_frac_unnormalized, x_t, t):
+        # if learned variance, posterior variance and posterior log variance are predicted by the network
+        # by an interpolation of the max and min log beta values
+        # eq 15 - https://arxiv.org/abs/2102.09672
+        min_log = extract(self.posterior_log_variance_clipped, t, x_t.shape)
+        max_log = extract(torch.log(self.betas), t, x_t.shape)
+        var_interp_frac = unnormalize_zero_to_one(var_interp_frac_unnormalized)
+
+        posterior_log_variance = var_interp_frac * max_log + (1 - var_interp_frac) * min_log
+        return posterior_log_variance
+
     def q_posterior(self, x_start, x_t, t):
         posterior_mean = (
             extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
@@ -1084,14 +1095,7 @@ class Imagen(nn.Module):
         model_mean, posterior_variance, posterior_log_variance = noise_scheduler.q_posterior(x_start=x_recon, x_t=x, t=t)
 
         if learned_variance:
-            # if learned variance, posterio variance and posterior log variance are predicted by the network
-            # by an interpolation of the max and min log beta values
-            # eq 15 - https://arxiv.org/abs/2102.09672
-            min_log = extract(noise_scheduler.posterior_log_variance_clipped, t, x.shape)
-            max_log = extract(torch.log(noise_scheduler.betas), t, x.shape)
-            var_interp_frac = unnormalize_zero_to_one(var_interp_frac_unnormalized)
-
-            posterior_log_variance = var_interp_frac * max_log + (1 - var_interp_frac) * min_log
+            posterior_log_variance = noise_scheduler.get_learned_posterior_log_variance(var_interp_frac_unnormalized, x_t = x, t = t)
             posterior_variance = posterior_log_variance.exp()
 
         return model_mean, posterior_variance, posterior_log_variance
