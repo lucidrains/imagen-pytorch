@@ -26,18 +26,19 @@ from imagen_pytorch import Unet, Imagen
 
 unet1 = Unet(
     dim = 32,
-    cond_dim = 128,
+    cond_dim = 512,
     channels = 3,
     dim_mults = (1, 2, 4, 8),
-    layer_attns = (False, True, True, True)
+    num_resnet_blocks = 3,
+    layer_attns = (False, True, True, True),
 )
 
-unet2 = Unet(
+unet2 = SRUnet(
     dim = 32,
-    cond_dim = 128,
+    cond_dim = 512,
     channels = 3,
-    dim_mults=(1, 2, 4, 8),
-    layer_attns = False
+    dim_mults = (1, 2, 4, 8),
+    num_resnet_blocks = (2, 4, 8, 8)
 )
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
@@ -86,15 +87,16 @@ unet1 = Unet(
     cond_dim = 512,
     channels = 3,
     dim_mults = (1, 2, 4, 8),
-    layer_attns = (False, True, True, True)
+    num_resnet_blocks = 3,
+    layer_attns = (False, True, True, True),
 )
 
-unet2 = Unet(
+unet2 = SRUnet(
     dim = 32,
     cond_dim = 512,
     channels = 3,
     dim_mults = (1, 2, 4, 8),
-    layer_attns = False
+    num_resnet_blocks = (2, 4, 8, 8)
 )
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
@@ -162,6 +164,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
 - [ ] exercise efficient attention expertise + explore skip layer excitation
 - [ ] consider using perceiver-resampler from https://github.com/lucidrains/flamingo-pytorch in place of attention pooling
+- [ ] add optional cosine decay schedule with warmup, for each unet, to trainer
 
 ## Citations
 
