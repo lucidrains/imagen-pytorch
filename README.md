@@ -134,6 +134,15 @@ images = trainer.sample(texts = [
 images.shape # (2, 3, 256, 256)
 ```
 
+## Shoutouts
+
+- <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
+
+- <a href="https://huggingface.co/">🤗 Huggingface</a> for their amazing transformers library. The text encoder portion is pretty much taken care of because of them
+
+- You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
+
+
 ## Todo
 
 - [x] use huggingface transformers for T5-small text embeddings
