@@ -1,5 +1,5 @@
 import torch
-from transformers import T5Tokenizer, T5EncoderModel, AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import T5Tokenizer, T5EncoderModel, T5Config
 
 def exists(val):
     return val is not None
@@ -10,77 +10,42 @@ MAX_LENGTH = 256
 
 DEFAULT_T5_NAME = 'google/t5-v1_1-base'
 
-T5_CONFIGS = {
-    't5-small': {
-        'src': 't5',
-        'dim': 512
-    },
-    't5-base': {
-        'src': 't5',
-        'dim': 768
-    },
-    't5-large': {
-        'src': 't5',
-        'dim': 1024
-    },
-    'google/t5-v1_1-small': {
-        'src': 'auto',
-        'dim': 512
-    },
-    'google/t5-v1_1-base': {
-        'src': 'auto',
-        'dim': 768
-    },
-    'google/t5-v1_1-large': {
-        'src': 'auto',
-        'dim': 1024
-    }
-}
+T5_CONFIGS = {}
 
 # singleton globals
 
-def get_klass(name):
-    assert name in T5_CONFIGS
-    config = T5_CONFIGS[name]
-    src = config.get('src')
-
-    if src == 't5':
-        return T5Tokenizer, T5EncoderModel
-    elif src == 'auto':
-        return AutoTokenizer, AutoModelForSeq2SeqLM
-    else:
-        raise ValueError(f'unknown source {src}')
-
 def get_tokenizer(name):
-    assert name in T5_CONFIGS
-    tokenizer_klass, _ = get_klass(name)
-    tokenizer = tokenizer_klass.from_pretrained(name)
+    tokenizer = T5Tokenizer.from_pretrained(name)
     return tokenizer
 
 def get_model(name):
-    assert name in T5_CONFIGS
-    _, model_klass = get_klass(name)
-    model = model_klass.from_pretrained(name)
+    model = T5EncoderModel.from_pretrained(name)
     return model
 
 def get_model_and_tokenizer(name):
     global T5_CONFIGS
-    assert name in T5_CONFIGS, f'{name} model is not found in the configuration'
-    config = T5_CONFIGS[name]
 
-    if not 'model' in config:
-        model = get_model(name)
-        config['model'] = model
+    if name not in T5_CONFIGS:
+        T5_CONFIGS[name] = dict()
+    if "model" not in T5_CONFIGS[name]:
+        T5_CONFIGS[name]["model"] = get_model(name)
+    if "tokenizer" not in T5_CONFIGS[name]:
+        T5_CONFIGS[name]["tokenizer"] = get_tokenizer(name)
 
-    if not 'tokenizer' in config:
-        tokenizer = get_tokenizer(name)
-        config['tokenizer'] = tokenizer
-
-    return config['model'], config['tokenizer']
+    return T5_CONFIGS[name]['model'], T5_CONFIGS[name]['tokenizer']
 
 def get_encoded_dim(name):
-    assert name in T5_CONFIGS, f'{name} model is not found in configuration'
-    return T5_CONFIGS[name]['dim']
+    if name not in T5_CONFIGS:
+        # avoids loading the model if we only want to get the dim
+        config = T5Config.from_pretrained(name)
+        T5_CONFIGS[name] = dict(config=config)
+    elif "config" in T5_CONFIGS:
+        config = T5_CONFIGS[name]["config"]
+    elif "model" in T5_CONFIGS:
+        config = T5_CONFIGS[name]["model"].config
+    else:
+        assert False
+    return config.d_model
 
 # encoding text
 
@@ -105,15 +70,8 @@ def t5_encode_text(texts, name = DEFAULT_T5_NAME):
 
     t5.eval()
 
-    config = T5_CONFIGS[name]
-    src = config['src']
-
     with torch.no_grad():
-        if src == 't5':
-            output = t5(input_ids = input_ids, attention_mask = attn_mask)
-            encoded_text = output.last_hidden_state.detach()
-        elif src == 'auto':
-            output = t5(input_ids = input_ids, attention_mask = attn_mask, decoder_input_ids = input_ids[:, :1])
-            encoded_text = output.encoder_last_hidden_state.detach()
+        output = t5(input_ids = input_ids, attention_mask = attn_mask)
+        encoded_text = output.last_hidden_state.detach()
 
     return encoded_text, attn_mask.bool()
