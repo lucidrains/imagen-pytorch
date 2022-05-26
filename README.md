@@ -143,8 +143,9 @@ images.shape # (2, 3, 256, 256)
 - [x] add the lowres noise level with the pseudocode in appendix, and figure out what is this sweep they do at inference time
 - [x] port over some training code from DALLE2
 - [x] need to be able to use a different noise schedule per unet (cosine was used for base, but linear for SR)
-- [ ] separate unet into base unet and SR3 unet
-- [ ] build whatever efficient unet they came up with
+- [x] just make one master-configurable unet
+- [x] complete resnet block (biggan inspired? but with groupnorm) - complete self attention
+- [ ] complete conditioning embedding block (and make it completely configurable, whether it be attention, film, attention pool, etc)
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages
 
