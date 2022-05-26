@@ -157,6 +157,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] complete conditioning embedding block (and make it completely configurable, whether it be attention, film, attention pool, etc)
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
+- [ ] exercise efficient attention expertise + explore skip layer excitation
 
 ## Citations
 
