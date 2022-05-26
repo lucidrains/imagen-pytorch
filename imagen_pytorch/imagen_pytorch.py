@@ -784,8 +784,10 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(in_out, num_resnet_blocks, resnet_groups, layer_attns, layer_cross_attns)):
-            is_first = ind == 0
+        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_cross_attns]
+        reversed_layer_params = list(map(reversed, layer_params))
+
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
             is_last = ind >= (num_resolutions - 1)
             layer_cond_dim = cond_dim if layer_cross_attn else None
 
@@ -802,8 +804,7 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[1:]), reversed(num_resnet_blocks), reversed(resnet_groups), reversed(layer_attns), reversed(layer_cross_attns))):
-            is_last = ind >= (num_resolutions - 2)
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[1:]), *reversed_layer_params)):
             layer_cond_dim = cond_dim if layer_cross_attn else None
 
             self.ups.append(nn.ModuleList([
