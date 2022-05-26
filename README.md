@@ -20,7 +20,7 @@ $ pip install imagen-pytorch
 
 ```python
 import torch
-from imagen_pytorch import Unet, Imagen
+from imagen_pytorch import Unet, SRUnet, Imagen
 
 # unet for imagen
 
@@ -78,7 +78,7 @@ With the `ImagenTrainer` wrapper class, the exponential moving averages for all 
 
 ```python
 import torch
-from imagen_pytorch import Unet, Imagen, ImagenTrainer
+from imagen_pytorch import Unet, SRUnet, Imagen, ImagenTrainer
 
 # unet for imagen
 
