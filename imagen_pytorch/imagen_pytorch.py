@@ -978,6 +978,11 @@ class Unet(nn.Module):
 
         return self.final_conv(x)
 
+class SRUnet(Unet):
+    def __init__(self, *args, **kwargs):
+        kwargs.update({'layer_attns': False})
+        super().__init__(*args, **kwargs)
+
 class Imagen(nn.Module):
     def __init__(
         self,
