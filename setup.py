@@ -23,6 +23,7 @@ setup(
     'numpy',
     'pydantic',
     'resize-right',
+    'sentencepiece',
     'torch>=1.6',
     'torchvision',
     'transformers',

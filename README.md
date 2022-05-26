@@ -141,6 +141,7 @@ images.shape # (3, 3, 256, 256)
 - [ ] build whatever efficient unet they came up with
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages
+- [ ] community prepares pretrained models
 
 ## Citations
 
