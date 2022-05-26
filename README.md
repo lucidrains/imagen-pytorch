@@ -28,15 +28,17 @@ unet1 = Unet(
     dim = 32,
     cond_dim = 128,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults = (1, 2, 4, 8),
+    layer_attns = (False, True, True, True)
+)
 
 unet2 = Unet(
     dim = 32,
     cond_dim = 128,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults=(1, 2, 4, 8),
+    layer_attns = False
+)
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
 
@@ -50,7 +52,7 @@ imagen = Imagen(
 
 # mock images (get a lot of this) and text encodings from large T5
 
-text_embeds = torch.randn(4, 256, 512).cuda()
+text_embeds = torch.randn(4, 256, 768).cuda()
 images = torch.randn(4, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
@@ -83,15 +85,17 @@ unet1 = Unet(
     dim = 32,
     cond_dim = 512,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults = (1, 2, 4, 8),
+    layer_attns = (False, True, True, True)
+)
 
 unet2 = Unet(
     dim = 32,
     cond_dim = 512,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults = (1, 2, 4, 8),
+    layer_attns = False
+)
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
 
@@ -127,7 +131,7 @@ images = trainer.sample(texts = [
     'the milky way galaxy in the style of monet'
 ], cond_scale = 2.)
 
-images.shape # (3, 3, 256, 256)
+images.shape # (2, 3, 256, 256)
 ```
 
 ## Todo
