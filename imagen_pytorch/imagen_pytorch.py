@@ -753,7 +753,7 @@ class Unet(nn.Module):
 
             self.downs.append(nn.ModuleList([
                 ResnetBlock(dim_in, dim_out, time_cond_dim = time_cond_dim, groups = groups),
-                nn.ModuleList([ResnetBlock(dim_out, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups) for _ in range(layer_num_resnet_blocks)]),
+                nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else nn.Identity(),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
             ]))
@@ -770,7 +770,7 @@ class Unet(nn.Module):
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
-                nn.ModuleList([ResnetBlock(dim_in, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups) for _ in range(layer_num_resnet_blocks)]),
+                nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 TransformerBlock(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else nn.Identity(),
                 Upsample(dim_in)
             ]))
@@ -919,7 +919,7 @@ class Unet(nn.Module):
             x = init_block(x, c, t)
 
             for resnet_block in resnet_blocks:
-                x = resnet_block(x, c, t)
+                x = resnet_block(x)
 
             x = attn_block(x)
 
@@ -938,7 +938,7 @@ class Unet(nn.Module):
             x = init_block(x, c, t)
 
             for resnet_block in resnet_blocks:
-                x = resnet_block(x, c, t)
+                x = resnet_block(x)
 
             x = attn_block(x)
             x = upsample(x)
