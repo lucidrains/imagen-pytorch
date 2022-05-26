@@ -166,6 +166,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] exercise efficient attention expertise + explore skip layer excitation
 - [ ] consider using perceiver-resampler from https://github.com/lucidrains/flamingo-pytorch in place of attention pooling
 - [ ] add optional cosine decay schedule with warmup, for each unet, to trainer
+- [ ] try out grid attention
 
 ## Citations
 
@@ -174,5 +175,14 @@ images.shape # (2, 3, 256, 256)
     title   = {Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding},
     author  = {Chitwan Saharia and William Chan and Saurabh Saxena and Lala Li and Jay Whang and Emily L. Denton and Seyed Kamyar Seyed Ghasemipour and Burcu Karagol Ayan and Seyedeh Sara Mahdavi and Raphael Gontijo Lopes and Tim Salimans and Jonathan Ho and David Fleet and Mohammad Norouzi},
     year    = {2022}
+}
+```
+
+```bibtex
+@inproceedings{Tu2022MaxViTMV,
+    title   = {MaxViT: Multi-Axis Vision Transformer},
+    author  = {Zhengzhong Tu and Hossein Talebi and Han Zhang and Feng Yang and Peyman Milanfar and Alan Conrad Bovik and Yinxiao Li},
+    year    = {2022},
+    url     = {https://arxiv.org/abs/2204.01697}
 }
 ```
