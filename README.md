@@ -140,6 +140,8 @@ images.shape # (2, 3, 256, 256)
 
 - <a href="https://huggingface.co/">🤗 Huggingface</a> for their amazing transformers library. The text encoder portion is pretty much taken care of because of them
 
+- <a href="https://github.com/jorgemcgomes">Jorge Gomes</a> for helping out with the T5 loading code and advice on the correct T5 version
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 
