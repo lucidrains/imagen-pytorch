@@ -39,9 +39,9 @@ def get_encoded_dim(name):
         # avoids loading the model if we only want to get the dim
         config = T5Config.from_pretrained(name)
         T5_CONFIGS[name] = dict(config=config)
-    elif "config" in T5_CONFIGS:
+    elif "config" in T5_CONFIGS[name]:
         config = T5_CONFIGS[name]["config"]
-    elif "model" in T5_CONFIGS:
+    elif "model" in T5_CONFIGS[name]:
         config = T5_CONFIGS[name]["model"].config
     else:
         assert False
