@@ -384,22 +384,23 @@ class Block(nn.Module):
         self,
         dim,
         dim_out,
-        groups = 8
+        groups = 8,
+        norm = True
     ):
         super().__init__()
-        self.project = nn.Conv2d(dim, dim_out, 3, padding = 1)
-        self.groupnorm = nn.GroupNorm(groups, dim_out)
+        self.groupnorm = nn.GroupNorm(groups, dim) if norm else nn.Identity()
         self.activation = nn.SiLU()
+        self.project = nn.Conv2d(dim, dim_out, 3, padding = 1)
 
     def forward(self, x, scale_shift = None):
-        x = self.project(x)
         x = self.groupnorm(x)
 
         if exists(scale_shift):
             scale, shift = scale_shift
             x = x * (scale + 1) + shift
 
-        return self.activation(x)
+        x = self.activation(x)
+        return self.project(x)
 
 class ResnetBlock(nn.Module):
     def __init__(
@@ -445,13 +446,14 @@ class ResnetBlock(nn.Module):
             time_emb = rearrange(time_emb, 'b c -> b c 1 1')
             scale_shift = time_emb.chunk(2, dim = 1)
 
-        h = self.block1(x, scale_shift = scale_shift)
+        h = self.block1(x)
 
         if exists(self.cross_attn):
             assert exists(cond)
             h = self.cross_attn(h, context = cond) + h
 
-        h = self.block2(h)
+        h = self.block2(h, scale_shift = scale_shift)
+
         return h + self.res_conv(x)
 
 class CrossAttention(nn.Module):
@@ -640,7 +642,7 @@ class Unet(nn.Module):
         self.channels_out = default(channels_out, channels)
 
         init_channels = channels if not lowres_cond else channels * 2 # in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
-        init_dim = default(init_dim, dim // 3 * 2)
+        init_dim = default(init_dim, dim)
 
         self.init_conv = CrossEmbedLayer(init_channels, dim_out = init_dim, kernel_sizes = init_cross_embed_kernel_sizes, stride = 1)
 
