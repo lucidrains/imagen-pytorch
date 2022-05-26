@@ -8,6 +8,8 @@ Architecturally, it is actually much simpler than DALL-E2. It composes of a casc
 
 It appears neither CLIP nor prior network is needed after all. And so research continues.
 
+Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord" src="https://img.shields.io/discord/823813159592001537?color=5865F2&logo=discord&logoColor=white"></a> if you are interested in helping out with the replication with the <a href="https://laion.ai/">LAION</a> community
+
 ## Install
 
 ```bash
@@ -26,15 +28,17 @@ unet1 = Unet(
     dim = 32,
     cond_dim = 128,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults = (1, 2, 4, 8),
+    layer_attns = (False, True, True, True)
+)
 
 unet2 = Unet(
     dim = 32,
     cond_dim = 128,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults=(1, 2, 4, 8),
+    layer_attns = False
+)
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
 
@@ -48,7 +52,7 @@ imagen = Imagen(
 
 # mock images (get a lot of this) and text encodings from large T5
 
-text_embeds = torch.randn(4, 256, 512).cuda()
+text_embeds = torch.randn(4, 256, 768).cuda()
 images = torch.randn(4, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
@@ -81,15 +85,17 @@ unet1 = Unet(
     dim = 32,
     cond_dim = 512,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults = (1, 2, 4, 8),
+    layer_attns = (False, True, True, True)
+)
 
 unet2 = Unet(
     dim = 32,
     cond_dim = 512,
     channels = 3,
-    dim_mults=(1, 2, 4, 8)
-).cuda()
+    dim_mults = (1, 2, 4, 8),
+    layer_attns = False
+)
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
 
@@ -125,7 +131,7 @@ images = trainer.sample(texts = [
     'the milky way galaxy in the style of monet'
 ], cond_scale = 2.)
 
-images.shape # (3, 3, 256, 256)
+images.shape # (2, 3, 256, 256)
 ```
 
 ## Todo
@@ -137,11 +143,11 @@ images.shape # (3, 3, 256, 256)
 - [x] add the lowres noise level with the pseudocode in appendix, and figure out what is this sweep they do at inference time
 - [x] port over some training code from DALLE2
 - [x] need to be able to use a different noise schedule per unet (cosine was used for base, but linear for SR)
-- [ ] separate unet into base unet and SR3 unet
-- [ ] build whatever efficient unet they came up with
+- [x] just make one master-configurable unet
+- [x] complete resnet block (biggan inspired? but with groupnorm) - complete self attention
+- [ ] complete conditioning embedding block (and make it completely configurable, whether it be attention, film, attention pool, etc)
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
-- [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages
-- [ ] community prepares pretrained models
+- [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
 
 ## Citations
 
