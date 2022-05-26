@@ -220,6 +220,10 @@ class GaussianDiffusion(nn.Module):
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
+    def get_times(self, noise_level):
+        device = self.betas.device
+        return torch.full((batch_size,), int(self.num_timesteps * noise_level), device = device, dtype = torch.long)
+
     def sample_random_times(self, batch_size):
         device = self.betas.device
         return torch.randint(0, self.num_timesteps, (batch_size,), device = device, dtype = torch.long)
@@ -262,6 +266,10 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
     def __init__(self, *, beta_schedule, timesteps):
         super().__init__()
         raise NotImplementedError
+
+    def get_times(self, noise_level):
+        device = self.betas.device
+        return torch.full((batch_size,), noise_level, device = device, dtype = torch.long)
 
     def sample_random_times(self, batch_size, max_thres = 0.999):
         device = self.betas.device
@@ -984,7 +992,6 @@ class Imagen(nn.Module):
         beta_schedules = 'cosine',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         condition_on_text = True,
-        clip_denoised = True,
         learned_variance = True,
         vb_loss_weight = 0.001,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
@@ -1082,10 +1089,6 @@ class Imagen(nn.Module):
 
         self.cond_drop_prob = cond_drop_prob
         self.can_classifier_guidance = cond_drop_prob > 0.
-
-        # whether to clip when sampling
-
-        self.clip_denoised = clip_denoised
 
         # normalize and unnormalize image functions
 
@@ -1229,7 +1232,7 @@ class Imagen(nn.Module):
                 shape = (batch_size, channel, image_size, image_size)
 
                 if unet.lowres_cond:
-                    lowres_noise_times = torch.full((batch_size,), int(lowres_sample_noise_level * noise_scheduler.num_timesteps), device = device, dtype = torch.long)
+                    lowres_noise_times = noise_scheduler.get_times(lowres_sample_noise_level)
 
                     lowres_cond_img = resize_image_to(img, image_size)
                     lowres_cond_img = noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
