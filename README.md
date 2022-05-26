@@ -147,7 +147,7 @@ images.shape # (2, 3, 256, 256)
 - [x] complete resnet block (biggan inspired? but with groupnorm) - complete self attention
 - [ ] complete conditioning embedding block (and make it completely configurable, whether it be attention, film, attention pool, etc)
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
-- [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages
+- [ ] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
 
 ## Citations
 
