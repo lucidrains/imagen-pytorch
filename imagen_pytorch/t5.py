@@ -84,7 +84,7 @@ def get_encoded_dim(name):
 
 # encoding text
 
-def t5_encode_text(texts, name = 't5-small'):
+def t5_encode_text(texts, name = DEFAULT_T5_NAME):
     t5, tokenizer = get_model_and_tokenizer(name)
 
     if torch.cuda.is_available():

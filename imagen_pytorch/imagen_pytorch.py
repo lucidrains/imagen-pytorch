@@ -152,7 +152,7 @@ def discretized_gaussian_log_likelihood(x, *, means, log_scales, thres = 0.999):
 
     return log_probs
 
-def cosine_beta_schedule(timesteps, s = 0.008):
+def cosine_beta_schedule(timesteps, s = 0.008, thres = 0.999):
     """
     cosine schedule
     as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
@@ -162,7 +162,7 @@ def cosine_beta_schedule(timesteps, s = 0.008):
     alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
     alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return torch.clip(betas, 0, 0.999)
+    return torch.clip(betas, 0, thres)
 
 
 def linear_beta_schedule(timesteps):
@@ -261,6 +261,22 @@ class GaussianDiffusion(nn.Module):
 class GaussianDiffusionContinuousTimes(GaussianDiffusion):
     def __init__(self, *, beta_schedule, timesteps):
         super().__init__()
+        raise NotImplementedError
+
+    def sample_random_times(self, batch_size, max_thres = 0.999):
+        device = self.betas.device
+        return torch.zeros((batch_size,), device = device).float().uniform_(0, max_thres)
+
+    def get_learned_posterior_log_variance(self, var_interp_frac_unnormalized, x_t, t):
+        raise NotImplementedError
+
+    def q_posterior(self, x_start, x_t, t):
+        raise NotImplementedError
+
+    def q_sample(self, x_start, t, noise=None):
+        raise NotImplementedError
+
+    def predict_start_from_noise(self, x_t, t, noise):
         raise NotImplementedError
 
 # norms and residuals
