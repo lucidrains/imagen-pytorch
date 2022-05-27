@@ -989,6 +989,8 @@ class Unet(nn.Module):
 class BaseUnet64(Unet):
     def __init__(self, *args, **kwargs):
         kwargs.update(dict(
+            dim = 512,
+            dim_mults = (1, 2, 3, 4),
             num_resnet_blocks = 3,
             layer_attns = (False, True, True, True),
             layer_cross_attns = (False, True, True, True)
@@ -998,6 +1000,8 @@ class BaseUnet64(Unet):
 class SRUnet256(Unet):
     def __init__(self, *args, **kwargs):
         kwargs.update(dict(
+            dim = 128,
+            dim_mults = (1, 2, 4, 8),
             num_resnet_blocks = (2, 4, 8, 8),
             layer_attns = (False, False, False, True),
             layer_cross_attns = (False, False, False, True)
@@ -1007,6 +1011,8 @@ class SRUnet256(Unet):
 class SRUnet1024(Unet):
     def __init__(self, *args, **kwargs):
         kwargs.update(dict(
+            dim = 128,
+            dim_mults = (1, 2, 4, 8),
             num_resnet_blocks = (2, 4, 8, 8),
             layer_attns = False,
             layer_cross_attns = (False, False, False, True)
