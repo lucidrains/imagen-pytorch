@@ -781,7 +781,7 @@ class Unet(nn.Module):
         init_cross_embed_kernel_sizes = (3, 7, 15),
         cross_embed_downsample = False,
         cross_embed_downsample_kernel_sizes = (2, 4),
-        attn_pool_text = False,
+        attn_pool_text = True,
         attn_pool_num_latents = 32,
         **kwargs
     ):
