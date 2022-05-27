@@ -662,8 +662,8 @@ class Unet(nn.Module):
         dim_mults=(1, 2, 4, 8),
         channels = 3,
         channels_out = None,
-        attn_dim_head = 32,
-        attn_heads = 16,
+        attn_dim_head = 64,
+        attn_heads = 8,
         ff_mult = 2.,
         lowres_cond = False, # for cascading diffusion - https://cascaded-diffusion.github.io/
         layer_attns = True,
@@ -993,7 +993,9 @@ class BaseUnet64(Unet):
             dim_mults = (1, 2, 3, 4),
             num_resnet_blocks = 3,
             layer_attns = (False, True, True, True),
-            layer_cross_attns = (False, True, True, True)
+            layer_cross_attns = (False, True, True, True),
+            attn_heads = 8,
+            ff_mult = 2.,
         ))
         super().__init__(*args, **kwargs)
 
@@ -1004,7 +1006,9 @@ class SRUnet256(Unet):
             dim_mults = (1, 2, 4, 8),
             num_resnet_blocks = (2, 4, 8, 8),
             layer_attns = (False, False, False, True),
-            layer_cross_attns = (False, False, False, True)
+            layer_cross_attns = (False, False, False, True),
+            attn_heads = 8,
+            ff_mult = 2.,
         ))
         super().__init__(*args, **kwargs)
 
@@ -1015,7 +1019,9 @@ class SRUnet1024(Unet):
             dim_mults = (1, 2, 4, 8),
             num_resnet_blocks = (2, 4, 8, 8),
             layer_attns = False,
-            layer_cross_attns = (False, False, False, True)
+            layer_cross_attns = (False, False, False, True),
+            attn_heads = 8,
+            ff_mult = 2.,
         ))
         super().__init__(*args, **kwargs)
 

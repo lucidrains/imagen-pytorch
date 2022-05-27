@@ -55,12 +55,13 @@ imagen = Imagen(
 # mock images (get a lot of this) and text encodings from large T5
 
 text_embeds = torch.randn(4, 256, 768).cuda()
+text_masks = torch.ones(4, 256).bool().cuda()
 images = torch.randn(4, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
 
 for i in (1, 2):
-    loss = imagen(images, text_embeds = text_embeds, unet_number = i)
+    loss = imagen(images, text_embeds = text_embeds, text_masks = text_masks, unet_number = i)
     loss.backward()
 
 # do the above for many many many many steps
@@ -118,12 +119,13 @@ trainer = ImagenTrainer(imagen)
 # mock images (get a lot of this) and text encodings from large T5
 
 text_embeds = torch.randn(4, 256, 1024).cuda()
+text_masks = torch.ones(4, 256).bool().cuda()
 images = torch.randn(4, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
 
 for i in (1, 2):
-    loss = trainer(images, text_embeds = text_embeds, unet_number = i)
+    loss = trainer(images, text_embeds = text_embeds, text_masks = text_masks, unet_number = i)
     trainer.update(unet_number = i)
 
 # do the above for many many many many steps
