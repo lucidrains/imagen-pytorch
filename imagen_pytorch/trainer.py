@@ -2,13 +2,17 @@ import time
 import copy
 from pathlib import Path
 from math import ceil
+from contextlib import contextmanager
 from functools import partial, wraps
 from collections.abc import Iterable
 
 import torch
 from torch import nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.cuda.amp import autocast, GradScaler
+
+import pytorch_warmup as warmup
 
 from imagen_pytorch.imagen_pytorch import Imagen
 
@@ -24,6 +28,10 @@ def default(val, d):
 
 def cast_tuple(val, length = 1):
     return val if isinstance(val, tuple) else ((val,) * length)
+
+@contextmanager
+def null_context(*args, **kwargs):
+    yield
 
 def pick_and_pop(keys, d):
     values = list(map(lambda key: d.pop(key), keys))
@@ -222,6 +230,8 @@ class ImagenTrainer(nn.Module):
         max_grad_norm = 0.5,
         amp = False,
         group_wd_params = True,
+        warmup_steps = None,
+        cosine_decay_max_steps = None,
         **kwargs
     ):
         super().__init__()
@@ -239,9 +249,9 @@ class ImagenTrainer(nn.Module):
         # be able to finely customize learning rate, weight decay
         # per unet
 
-        lr, eps = map(partial(cast_tuple, length = self.num_unets), (lr, eps))
+        lr, eps, warmup_steps, cosine_decay_max_steps = map(partial(cast_tuple, length = self.num_unets), (lr, eps, warmup_steps, cosine_decay_max_steps))
 
-        for ind, (unet, unet_lr, unet_eps) in enumerate(zip(self.imagen.unets, lr, eps)):
+        for ind, (unet, unet_lr, unet_eps, unet_warmup_steps, unet_cosine_decay_max_steps) in enumerate(zip(self.imagen.unets, lr, eps, warmup_steps, cosine_decay_max_steps)):
             optimizer = Adam(
                 unet.parameters(),
                 lr = unet_lr,
@@ -256,6 +266,17 @@ class ImagenTrainer(nn.Module):
 
             scaler = GradScaler(enabled = amp)
             setattr(self, f'scaler{ind}', scaler)
+
+            scheduler = warmup_scheduler = None
+
+            if exists(unet_cosine_decay_max_steps):
+                scheduler = CosineAnnealingLR(optimizer, T_max = unet_warmup_steps)
+
+            if exists(unet_warmup_steps):
+                warmup.LinearWarmup(optimizer, warmup_period = unet_warmup_steps)
+
+            setattr(self, f'scheduler{ind}', scheduler)
+            setattr(self, f'warmup{ind}', warmup_scheduler)
 
         # gradient clipping if needed
 
@@ -278,8 +299,20 @@ class ImagenTrainer(nn.Module):
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
             optimizer_key = f'scaler{ind}'
+            scheduler_key = f'scheduler{ind}'
+            warmup_scheduler_key = f'warmup{ind}'
+
             scaler = getattr(self, scaler_key)
             optimizer = getattr(self, optimizer_key)
+            scheduler = getattr(self, scheduler_key)
+            warmup_scheduler = getattr(self, warmup_scheduler_key)
+
+            if exists(scheduler):
+                save_obj = {**save_obj, scheduler_key: scheduler.state_dict()}
+
+            if exists(warmup_scheduler):
+                save_obj = {**save_obj, warmup_scheduler_key: warmup_scheduler.state_dict()}
+
             save_obj = {**save_obj, scaler_key: scaler.state_dict(), optimizer_key: optimizer.state_dict()}
 
         if self.use_ema:
@@ -305,8 +338,19 @@ class ImagenTrainer(nn.Module):
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
             optimizer_key = f'scaler{ind}'
+            scheduler_key = f'scheduler{ind}'
+            warmup_scheduler_key = f'warmup{ind}'
+
             scaler = getattr(self, scaler_key)
             optimizer = getattr(self, optimizer_key)
+            scheduler = getattr(self, scheduler_key)
+            warmup_scheduler = getattr(self, warmup_scheduler_key)
+
+            if exists(scheduler):
+                scheduler.load_state_dict(loaded_obj[scheduler_key])
+
+            if exists(warmup_scheduler):
+                warmup_scheduler.load_state_dict(loaded_obj[warmup_scheduler_key])
 
             scaler.load_state_dict(loaded_obj[scaler_key])
             optimizer.load_state_dict(loaded_obj[optimizer_key])
@@ -338,6 +382,9 @@ class ImagenTrainer(nn.Module):
         optimizer = getattr(self, f'optim{index}')
         scaler = getattr(self, f'scaler{index}')
 
+        scheduler = getattr(self, f'scheduler{index}')
+        warmup_scheduler = getattr(self, f'warmup{index}')
+
         if exists(self.max_grad_norm):
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(unet.parameters(), self.max_grad_norm)
@@ -349,6 +396,13 @@ class ImagenTrainer(nn.Module):
         if self.use_ema:
             ema_unet = self.ema_unets[index]
             ema_unet.update()
+
+        # scheduler, if needed
+        maybe_warmup_context = null_context() if not exists(warmup_scheduler) else warmup_scheduler.dampening()
+
+        with maybe_warmup_context:
+            if exists(scheduler):
+                scheduler.step()
 
         self.step += 1
 

@@ -24,6 +24,7 @@ setup(
     'numpy',
     'pillow',
     'pydantic',
+    'pytorch-warmup',
     'resize-right',
     'sentencepiece',
     'torch>=1.6',
