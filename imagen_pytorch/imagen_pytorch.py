@@ -397,8 +397,6 @@ class PerceiverResampler(nn.Module):
                 FeedForward(dim = dim, mult = ff_mult)
             ]))
 
-        self.norm = nn.LayerNorm(dim)
-
     def forward(self, x, mask = None):
         n, device = x.shape[1], x.device
         pos_emb = self.pos_emb(torch.arange(n, device = device))
@@ -411,7 +409,7 @@ class PerceiverResampler(nn.Module):
             latents = attn(x, latents, mask = mask) + latents
             latents = ff(latents) + latents
 
-        return self.norm(latents)
+        return latents
 
 # attention
 
