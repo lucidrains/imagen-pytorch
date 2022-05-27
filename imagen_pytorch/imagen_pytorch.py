@@ -984,10 +984,36 @@ class Unet(nn.Module):
 
         return self.final_conv(x)
 
-class SRUnet(Unet):
+# predefined unets, with configs lining up with hyperparameters in appendix of paper
+
+class BaseUnet64(Unet):
     def __init__(self, *args, **kwargs):
-        kwargs.update({'layer_attns': False})
+        kwargs.update(dict(
+            num_resnet_blocks = 3,
+            layer_attns = (False, True, True, True),
+            layer_cross_attns = (False, True, True, True)
+        ))
         super().__init__(*args, **kwargs)
+
+class SRUnet256(Unet):
+    def __init__(self, *args, **kwargs):
+        kwargs.update(dict(
+            num_resnet_blocks = (2, 4, 8, 8),
+            layer_attns = (False, False, False, True),
+            layer_cross_attns = (False, False, False, True)
+        ))
+        super().__init__(*args, **kwargs)
+
+class SRUnet1024(Unet):
+    def __init__(self, *args, **kwargs):
+        kwargs.update(dict(
+            num_resnet_blocks = (2, 4, 8, 8),
+            layer_attns = False,
+            layer_cross_attns = (False, False, False, True)
+        ))
+        super().__init__(*args, **kwargs)
+
+# main imagen ddpm class, which is a cascading DDPM from Ho et al.
 
 class Imagen(nn.Module):
     def __init__(

@@ -20,14 +20,13 @@ $ pip install imagen-pytorch
 
 ```python
 import torch
-from imagen_pytorch import Unet, SRUnet, Imagen
+from imagen_pytorch import Unet, Imagen
 
 # unet for imagen
 
 unet1 = Unet(
     dim = 32,
     cond_dim = 512,
-    channels = 3,
     dim_mults = (1, 2, 4, 8),
     num_resnet_blocks = 3,
     layer_attns = (False, True, True, True),
@@ -37,9 +36,10 @@ unet1 = Unet(
 unet2 = SRUnet(
     dim = 32,
     cond_dim = 512,
-    channels = 3,
     dim_mults = (1, 2, 4, 8),
-    num_resnet_blocks = (2, 4, 8, 8)
+    num_resnet_blocks = (2, 4, 8, 8),
+    layer_attns = (False, False, False, True),
+    layer_cross_attns = (False, False, False, True)
 )
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
@@ -79,25 +79,25 @@ With the `ImagenTrainer` wrapper class, the exponential moving averages for all 
 
 ```python
 import torch
-from imagen_pytorch import Unet, SRUnet, Imagen, ImagenTrainer
+from imagen_pytorch import Unet, Imagen, ImagenTrainer
 
 # unet for imagen
 
 unet1 = Unet(
     dim = 32,
     cond_dim = 512,
-    channels = 3,
     dim_mults = (1, 2, 4, 8),
     num_resnet_blocks = 3,
     layer_attns = (False, True, True, True),
 )
 
-unet2 = SRUnet(
+unet2 = Unet(
     dim = 32,
     cond_dim = 512,
-    channels = 3,
     dim_mults = (1, 2, 4, 8),
-    num_resnet_blocks = (2, 4, 8, 8)
+    num_resnet_blocks = (2, 4, 8, 8),
+    layer_attns = (False, False, False, True),
+    layer_cross_attns = (False, False, False, True)
 )
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
