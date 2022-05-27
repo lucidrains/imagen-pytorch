@@ -147,6 +147,8 @@ images.shape # (2, 3, 256, 256)
 
 - <a href="https://github.com/jorgemcgomes">Jorge Gomes</a> for helping out with the T5 loading code and advice on the correct T5 version
 
+- <a href="https://github.com/crowsonkb">Katherine Crowson</a>, for her <a href="https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py">beautiful code</a>, which helped me understand the continuous time version of gaussian diffusion
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 
