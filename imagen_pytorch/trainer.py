@@ -218,7 +218,6 @@ class ImagenTrainer(nn.Module):
         imagen,
         use_ema = True,
         lr = 1e-4,
-        wd = 1e-2,
         eps = 1e-8,
         max_grad_norm = 0.5,
         amp = False,
@@ -240,9 +239,9 @@ class ImagenTrainer(nn.Module):
         # be able to finely customize learning rate, weight decay
         # per unet
 
-        lr, wd, eps = map(partial(cast_tuple, length = self.num_unets), (lr, wd, eps))
+        lr, eps = map(partial(cast_tuple, length = self.num_unets), (lr, eps))
 
-        for ind, (unet, unet_lr, unet_wd, unet_eps) in enumerate(zip(self.imagen.unets, lr, wd, eps)):
+        for ind, (unet, unet_lr, unet_eps) in enumerate(zip(self.imagen.unets, lr, eps)):
             optimizer = Adam(
                 unet.parameters(),
                 lr = unet_lr,
