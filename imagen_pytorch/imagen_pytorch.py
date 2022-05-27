@@ -341,7 +341,7 @@ class PerceiverAttention(nn.Module):
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
         self.to_out = nn.Linear(inner_dim, dim, bias = False)
 
-    def forward(self, x, latents):
+    def forward(self, x, latents, mask = None):
         x = self.norm(x)
         latents = self.norm_latents(latents)
 
@@ -361,6 +361,12 @@ class PerceiverAttention(nn.Module):
 
         sim = einsum('... i d, ... j d  -> ... i j', q, k)
 
+        if exists(mask):
+            max_neg_value = -torch.finfo(sim.dtype).max
+            mask = F.pad(mask, (0, latents.shape[-2]), value = True)
+            mask = rearrange(mask, 'b j -> b 1 1 j')
+            sim = sim.masked_fill(~mask, max_neg_value)
+
         sim = sim - sim.amax(dim = -1, keepdim = True).detach()
         attn = sim.softmax(dim = -1)
 
@@ -377,7 +383,7 @@ class PerceiverResampler(nn.Module):
         dim_head = 64,
         heads = 8,
         num_latents = 64,
-        max_seq_len = 256,
+        max_seq_len = 512,
         ff_mult = 4
     ):
         super().__init__()
@@ -393,14 +399,16 @@ class PerceiverResampler(nn.Module):
 
         self.norm = nn.LayerNorm(dim)
 
-    def forward(self, x):
+    def forward(self, x, mask = None):
         n, device = x.shape[1], x.device
-        x = x + self.pos_emb(torch.arange(n, device = device))
+        pos_emb = self.pos_emb(torch.arange(n, device = device))
+
+        x = x + pos_emb
 
         latents = repeat(self.latents, 'n d -> b n d', b = x.shape[0])
 
         for attn, ff in self.layers:
-            latents = attn(x, latents) + latents
+            latents = attn(x, latents, mask = mask) + latents
             latents = ff(latents) + latents
 
         return self.norm(latents)
@@ -678,7 +686,17 @@ class LinearAttention(nn.Module):
         out = self.nonlin(out)
         return self.to_out(out)
 
-def FeedForward(dim, mult = 2):  # in paper, it seems for self attention layers they did feedforwards with twice channel width
+def FeedForward(dim, mult = 2):
+    hidden_dim = int(dim * mult)
+    return nn.Sequential(
+        LayerNorm(dim),
+        nn.Linear(dim, hidden_dim, bias = False),
+        nn.GELU(),
+        LayerNorm(hidden_dim),
+        nn.Linear(hidden_dim, dim, bias = False)
+    )
+
+def ChanFeedForward(dim, mult = 2):  # in paper, it seems for self attention layers they did feedforwards with twice channel width
     hidden_dim = int(dim * mult)
     return nn.Sequential(
         ChanLayerNorm(dim),
@@ -699,7 +717,7 @@ class TransformerBlock(nn.Module):
     ):
         super().__init__()
         self.attn = EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head))
-        self.ff = FeedForward(dim = dim, mult = ff_mult)
+        self.ff = ChanFeedForward(dim = dim, mult = ff_mult)
 
     def forward(self, x):
         x = self.attn(x) + x
@@ -763,6 +781,8 @@ class Unet(nn.Module):
         init_cross_embed_kernel_sizes = (3, 7, 15),
         cross_embed_downsample = False,
         cross_embed_downsample_kernel_sizes = (2, 4),
+        attn_pool_text = False,
+        attn_pool_num_latents = 32,
         **kwargs
     ):
         super().__init__()
@@ -834,6 +854,10 @@ class Unet(nn.Module):
         # finer control over whether to condition on text encodings
 
         self.cond_on_text = cond_on_text
+
+        # attention pooling
+
+        self.attn_pool = PerceiverResampler(dim = cond_dim, depth = 2, dim_head = attn_dim_head, heads = attn_heads, num_latents = attn_pool_num_latents) if attn_pool_text else None
 
         # for classifier free guidance
 
@@ -999,6 +1023,7 @@ class Unet(nn.Module):
 
         if exists(text_embeds) and self.cond_on_text:
             text_tokens = self.text_to_cond(text_embeds)
+
             text_tokens = text_tokens[:, :self.max_text_len]
 
             text_tokens_len = text_tokens.shape[1]
@@ -1022,19 +1047,16 @@ class Unet(nn.Module):
                 null_text_embed
             )
 
+            if exists(self.attn_pool):
+                text_tokens = self.attn_pool(text_tokens)
+
         # main conditioning tokens (c)
 
-        c = time_tokens
-
-        # text and image conditioning tokens (mid_c)
-        # to save on compute, only do cross attention based conditioning on the inner most layers of the Unet
-
-        mid_c = c if not exists(text_tokens) else torch.cat((c, text_tokens), dim = -2)
+        c = time_tokens if not exists(text_tokens) else torch.cat((time_tokens, text_tokens), dim = -2)
 
         # normalize conditioning tokens
 
         c = self.norm_cond(c)
-        mid_c = self.norm_mid_cond(mid_c)
 
         # go through the layers of the unet, down and up
 
@@ -1051,12 +1073,12 @@ class Unet(nn.Module):
             hiddens.append(x)
             x = downsample(x)
 
-        x = self.mid_block1(x, mid_c, t)
+        x = self.mid_block1(x, c, t)
 
         if exists(self.mid_attn):
             x = self.mid_attn(x)
 
-        x = self.mid_block2(x, mid_c, t)
+        x = self.mid_block2(x, c, t)
 
         for init_block, resnet_blocks, attn_block, upsample in self.ups:
             x = torch.cat((x, hiddens.pop()), dim=1)
