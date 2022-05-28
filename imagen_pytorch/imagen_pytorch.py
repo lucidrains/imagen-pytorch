@@ -783,8 +783,8 @@ class CrossEmbedLayer(nn.Module):
 class Unet(nn.Module):
     def __init__(
         self,
-        dim,
         *,
+        dim,
         image_embed_dim = 1024,
         text_embed_dim = get_encoded_dim(DEFAULT_T5_NAME),
         num_resnet_blocks = 1,
@@ -811,15 +811,14 @@ class Unet(nn.Module):
         cross_embed_downsample = False,
         cross_embed_downsample_kernel_sizes = (2, 4),
         attn_pool_text = True,
-        attn_pool_num_latents = 32,
-        **kwargs
+        attn_pool_num_latents = 32
     ):
         super().__init__()
         # save locals to take care of some hyperparameters for cascading DDPM
 
         self._locals = locals()
-        del self._locals['self']
-        del self._locals['__class__']
+        self._locals.pop('self', None)
+        self._locals.pop('__class__', None)
 
         # for eventual cascading diffusion
 
