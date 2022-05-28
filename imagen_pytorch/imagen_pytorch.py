@@ -262,10 +262,29 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
         )
 
+# gaussian diffusion with continuos time helper functions and classes
+# large part of this was thanks to @crowsonkb at https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py
+
+def right_pad_dims_to(t, x):
+    padding_dims = x.ndim - t.ndim
+    if padding_dims <= 0:
+        return t
+    return t.view(*t.shape, *((1,) * padding_dims))
+
+@torch.jit.script
+def beta_linear_log_snr(t):
+    return -torch.log(torch.special.expm1(1e-4 + 10 * (t ** 2)))
+
+def log_snr_to_alpha_sigma(log_snr):
+    return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
+
 class GaussianDiffusionContinuousTimes(GaussianDiffusion):
-    def __init__(self, *, beta_schedule, timesteps):
+    def __init__(self, *, beta_schedule, **kwargs):
         super().__init__()
-        raise NotImplementedError
+        if beta_schedule == 'linear':
+            self.log_snr = beta_linear_log_snr
+        else:
+            raise ValueError(f'invalid noise schedule {beta_schedule}')
 
     def get_times(self, batch_size, noise_level):
         device = self.betas.device
@@ -281,11 +300,18 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
     def q_posterior(self, x_start, x_t, t):
         raise NotImplementedError
 
-    def q_sample(self, x_start, t, noise=None):
-        raise NotImplementedError
+    def q_sample(self, x_start, t, noise = None):
+        noise = default(noise, lambda: torch.randn_like(x_start))
+        log_snr = self.log_snr(x_start, t)
+        log_snr = pad_dim_right(log_snr, x_start)
+        alpha, sigma =  log_snr_to_alpha_sigma(log_snr)
+        return alpha * x_start + sigma * noise
 
     def predict_start_from_noise(self, x_t, t, noise):
-        raise NotImplementedError
+        log_snr = self.log_snr(t)
+        log_snr = pad_dim_right(log_snr, x_t)
+        alpha, sigma = log_snr_to_alpha_sigma(log_snr)
+        return alpha * x_t - sigma * noise
 
 # norms and residuals
 
