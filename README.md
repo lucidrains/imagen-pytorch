@@ -33,7 +33,7 @@ unet1 = Unet(
     layer_cross_attns = (False, True, True, True)
 )
 
-unet2 = SRUnet(
+unet2 = Unet(
     dim = 32,
     cond_dim = 512,
     dim_mults = (1, 2, 4, 8),
