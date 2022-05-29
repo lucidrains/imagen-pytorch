@@ -1056,7 +1056,7 @@ class Unet(nn.Module):
         # add low resolution conditioning, if present
 
         assert not (self.lowres_cond and not exists(lowres_cond_img)), 'low resolution conditioning image must be present'
-        assert not (self.lowres_cond and not exists(lowres_noise_times)), 'low resolution conditoining noise time must be present'
+        assert not (self.lowres_cond and not exists(lowres_noise_times)), 'low resolution conditioning noise time must be present'
 
         if exists(lowres_cond_img):
             x = torch.cat((x, lowres_cond_img), dim = 1)
