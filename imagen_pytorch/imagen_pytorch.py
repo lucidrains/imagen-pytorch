@@ -10,6 +10,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+from torch.special import expm1
 import torchvision.transforms as T
 
 from einops import rearrange, repeat
@@ -216,7 +217,7 @@ class GaussianDiffusion(nn.Module):
 
         # below: log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
 
-        register_buffer('posterior_log_variance_clipped', torch.log(posterior_variance.clamp(min =1e-20)))
+        register_buffer('posterior_log_variance_clipped', log(posterior_variance, eps = 1e-20))
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
@@ -273,7 +274,7 @@ def right_pad_dims_to(t, x):
 
 @torch.jit.script
 def beta_linear_log_snr(t):
-    return -torch.log(torch.special.expm1(1e-4 + 10 * (t ** 2)))
+    return -torch.log(expm1(1e-4 + 10 * (t ** 2)))
 
 def alpha_cosine_log_snr(t):
     raise NotImplementedError
@@ -302,8 +303,22 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
     def get_learned_posterior_log_variance(self, var_interp_frac_unnormalized, x_t, t):
         raise NotImplementedError
 
-    def q_posterior(self, x_start, x_t, t):
-        raise NotImplementedError
+    def q_posterior(self, x_start, x_t, t, t_next):
+        """ https://openreview.net/attachment?id=2LdBqxc1Yv&name=supplementary_material """
+        """ µ still has to be done (eq. 32)"""
+        log_snr = self.log_snr(t)
+        log_snr_next = self.log_snr(t_next)
+        log_snr, log_snr_next = map(pad_dim_right, (log_snr, log_snr_next))
+
+        alpha, sigma = log_snr_to_alpha_sigma(log_snr)
+        alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
+
+        posterior_mean = None # todo, eq 32 from above, but done in a way to receive the x_start from predict_start_from_noise, since the x_start needs to be clipped (by dynamic thresholding?)
+
+        # following (eq. 33)
+        posterior_variance = (sigma_next ** 2) * -expm1(log_snr_next - log_snr)
+        posterior_log_variance_clipped = log(posterior_variance, eps = 1e-20)
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def q_sample(self, x_start, t, noise = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
