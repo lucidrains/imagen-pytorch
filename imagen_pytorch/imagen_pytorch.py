@@ -14,7 +14,7 @@ from torch.special import expm1
 import torchvision.transforms as T
 
 from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
+from einops.layers.torch import Rearrange, Reduce
 from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
 
@@ -82,6 +82,22 @@ def log(t, eps = 1e-12):
 
 def l2norm(t):
     return F.normalize(t, dim = -1)
+
+def right_pad_dims_to(x, t):
+    padding_dims = x.ndim - t.ndim
+    if padding_dims <= 0:
+        return t
+    return t.view(*t.shape, *((1,) * padding_dims))
+
+def masked_mean(t, *, dim, mask = None):
+    if not exists(mask):
+        return t.mean(dim = dim)
+
+    denom = mask.sum(dim = dim, keepdim = True)
+    mask = rearrange(mask, 'b n -> b n 1')
+    masked_t = t.masked_fill(~mask, 0.)
+
+    return masked_t.sum(dim = dim) / denom.clamp(min = 1e-5)
 
 def resize_image_to(image, target_image_size):
     orig_image_size = image.shape[-1]
@@ -266,12 +282,6 @@ class GaussianDiffusion(nn.Module):
 # gaussian diffusion with continuos time helper functions and classes
 # large part of this was thanks to @crowsonkb at https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py
 
-def right_pad_dims_to(x, t):
-    padding_dims = x.ndim - t.ndim
-    if padding_dims <= 0:
-        return t
-    return t.view(*t.shape, *((1,) * padding_dims))
-
 @torch.jit.script
 def beta_linear_log_snr(t):
     return -torch.log(expm1(1e-4 + 10 * (t ** 2)))
@@ -429,12 +439,23 @@ class PerceiverResampler(nn.Module):
         dim_head = 64,
         heads = 8,
         num_latents = 64,
+        num_latents_mean_pooled = 4, # number of latents derived from mean pooled representation of the sequence
         max_seq_len = 512,
-        ff_mult = 4
+        ff_mult = 4,
     ):
         super().__init__()
-        self.latents = nn.Parameter(torch.randn(num_latents, dim))
         self.pos_emb = nn.Embedding(max_seq_len, dim)
+
+        self.latents = nn.Parameter(torch.randn(num_latents, dim))
+
+        self.to_latents_from_mean_pooled_seq = None
+
+        if num_latents_mean_pooled > 0:
+            self.to_latents_from_mean_pooled_seq = nn.Sequential(
+                LayerNorm(dim),
+                nn.Linear(dim, dim * num_latents_mean_pooled),
+                Rearrange('b (n d) -> b n d', n = num_latents_mean_pooled)
+            )
 
         self.layers = nn.ModuleList([])
         for _ in range(depth):
@@ -447,12 +468,17 @@ class PerceiverResampler(nn.Module):
         n, device = x.shape[1], x.device
         pos_emb = self.pos_emb(torch.arange(n, device = device))
 
-        x = x + pos_emb
+        x_with_pos = x + pos_emb
 
         latents = repeat(self.latents, 'n d -> b n d', b = x.shape[0])
 
+        if exists(self.to_latents_from_mean_pooled_seq):
+            meanpooled_seq = masked_mean(x, dim = 1, mask = torch.ones(x.shape[:2], device = x.device, dtype = torch.bool))
+            meanpooled_latents = self.to_latents_from_mean_pooled_seq(meanpooled_seq)
+            latents = torch.cat((meanpooled_latents, latents), dim = -2)
+
         for attn, ff in self.layers:
-            latents = attn(x, latents, mask = mask) + latents
+            latents = attn(x_with_pos, latents, mask = mask) + latents
             latents = ff(latents) + latents
 
         return latents
