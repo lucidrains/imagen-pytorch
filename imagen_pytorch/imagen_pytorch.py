@@ -266,7 +266,7 @@ class GaussianDiffusion(nn.Module):
 # gaussian diffusion with continuos time helper functions and classes
 # large part of this was thanks to @crowsonkb at https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py
 
-def right_pad_dims_to(t, x):
+def right_pad_dims_to(x, t):
     padding_dims = x.ndim - t.ndim
     if padding_dims <= 0:
         return t
@@ -308,7 +308,7 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
         """ µ still has to be done (eq. 32)"""
         log_snr = self.log_snr(t)
         log_snr_next = self.log_snr(t_next)
-        log_snr, log_snr_next = map(pad_dim_right, (log_snr, log_snr_next))
+        log_snr, log_snr_next = map(partial(right_pad_dims_to, x_t), (log_snr, log_snr_next))
 
         alpha, sigma = log_snr_to_alpha_sigma(log_snr)
         alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
@@ -323,13 +323,13 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
     def q_sample(self, x_start, t, noise = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
         log_snr = self.log_snr(x_start, t)
-        log_snr = pad_dim_right(log_snr, x_start)
+        log_snr = right_pad_dims_to(x_start, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr)
         return alpha * x_start + sigma * noise
 
     def predict_start_from_noise(self, x_t, t, noise):
         log_snr = self.log_snr(t)
-        log_snr = pad_dim_right(log_snr, x_t)
+        log_snr = right_pad_dims_to(x_t, log_snr)
         alpha, sigma = log_snr_to_alpha_sigma(log_snr)
         return (x_t - sigma * noise) / alpha.clamp(min = 1e-5)
 
