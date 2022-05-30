@@ -1,9 +1,10 @@
 from setuptools import setup, find_packages
+exec(open('imagen_pytorch/version.py').read())
 
 setup(
   name = 'imagen-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.49',
+  version = __version__,
   license='MIT',
   description = 'Imagen - unprecedented photorealism × deep level of language understanding',
   author = 'Phil Wang',

@@ -15,6 +15,8 @@ from torch.cuda.amp import autocast, GradScaler
 import pytorch_warmup as warmup
 
 from imagen_pytorch.imagen_pytorch import Imagen
+from imagen_pytorch.version import __version__
+from packaging import version
 
 import numpy as np
 
@@ -63,10 +65,6 @@ def num_to_groups(num, divisor):
     if remainder > 0:
         arr.append(remainder)
     return arr
-
-def get_pkg_version():
-    from pkg_resources import get_distribution
-    return get_distribution('dalle2_pytorch').version
 
 # decorators
 
@@ -291,7 +289,7 @@ class ImagenTrainer(nn.Module):
 
         save_obj = dict(
             model = self.imagen.state_dict(),
-            version = get_pkg_version(),
+            version = __version__,
             step = self.step.item(),
             **kwargs
         )
@@ -326,8 +324,8 @@ class ImagenTrainer(nn.Module):
 
         loaded_obj = torch.load(str(path))
 
-        if get_pkg_version() != loaded_obj['version']:
-            print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {get_pkg_version()}')
+        if version.parse(__version__) != loaded_obj['version']:
+            print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
 
         self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
         self.step.copy_(torch.ones_like(self.step) * loaded_obj['step'])
