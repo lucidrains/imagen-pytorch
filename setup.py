@@ -23,6 +23,7 @@ setup(
     'einops>=0.4',
     'einops-exts',
     'numpy',
+    'packaging',
     'pillow',
     'pydantic',
     'pytorch-warmup',
