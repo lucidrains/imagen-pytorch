@@ -1428,9 +1428,10 @@ class Imagen(nn.Module):
         cond_scale = 1.,
         lowres_sample_noise_level = None,
         stop_at_unet_number = None,
-        return_pil_images = False
+        return_pil_images = False,
+        device = None
     ):
-        device = next(self.parameters()).device
+        device = default(device, lambda: next(self.parameters()).device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)

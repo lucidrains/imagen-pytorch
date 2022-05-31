@@ -160,8 +160,8 @@ class EMA(nn.Module):
         self.register_buffer('initted', torch.Tensor([False]))
         self.register_buffer('step', torch.tensor([0]))
 
-    def restore_ema_model_device(self):
-        device = self.initted.device
+    def restore_ema_model_device(self, device = None):
+        device = default(device, self.initted.device)
         self.ema_model.to(device)
 
     def copy_params_from_model_to_ema(self):
@@ -281,6 +281,10 @@ class ImagenTrainer(nn.Module):
         self.max_grad_norm = max_grad_norm
 
         self.register_buffer('step', torch.tensor([0.]))
+
+        # automatic set device to imagen's device, if needed
+
+        self.to(next(imagen.parameters()).device)
 
     def save(self, path, overwrite = True, **kwargs):
         path = Path(path)
@@ -411,10 +415,11 @@ class ImagenTrainer(nn.Module):
         if kwargs.pop('use_non_ema', False) or not self.use_ema:
             return self.imagen.sample(*args, **kwargs)
 
+        device = self.step.device
         trainable_unets = self.imagen.unets
         self.imagen.unets = self.unets                  # swap in exponential moving averaged unets for sampling
 
-        output = self.imagen.sample(*args, **kwargs)
+        output = self.imagen.sample(*args, device = device, **kwargs)
 
         self.imagen.unets = trainable_unets             # restore original training unets
 
