@@ -395,7 +395,11 @@ class PerceiverAttention(nn.Module):
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
-        self.to_out = nn.Linear(inner_dim, dim, bias = False)
+
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, dim, bias = False),
+            nn.LayerNorm(dim)
+        )
 
     def forward(self, x, latents, mask = None):
         x = self.norm(x)
@@ -423,7 +427,6 @@ class PerceiverAttention(nn.Module):
             mask = rearrange(mask, 'b j -> b 1 1 j')
             sim = sim.masked_fill(~mask, max_neg_value)
 
-        sim = sim - sim.amax(dim = -1, keepdim = True).detach()
         attn = sim.softmax(dim = -1)
 
         out = einsum('... i j, ... j d -> ... i d', attn, v)
@@ -546,7 +549,6 @@ class Attention(nn.Module):
 
         # attention
 
-        sim = sim - sim.amax(dim = -1, keepdim = True).detach()
         attn = sim.softmax(dim = -1)
 
         # aggregate values
@@ -709,7 +711,6 @@ class CrossAttention(nn.Module):
             mask = rearrange(mask, 'b j -> b 1 1 j')
             sim = sim.masked_fill(~mask, max_neg_value)
 
-        sim = sim - sim.amax(dim = -1, keepdim = True).detach()
         attn = sim.softmax(dim = -1)
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
