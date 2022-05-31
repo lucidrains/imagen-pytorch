@@ -120,14 +120,21 @@ trainer = ImagenTrainer(imagen)
 
 # mock images (get a lot of this) and text encodings from large T5
 
-text_embeds = torch.randn(4, 256, 1024).cuda()
-text_masks = torch.ones(4, 256).bool().cuda()
-images = torch.randn(4, 3, 256, 256).cuda()
+text_embeds = torch.randn(64, 256, 1024).cuda()
+text_masks = torch.ones(64, 256).bool().cuda()
+images = torch.randn(64, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
 
 for i in (1, 2):
-    loss = trainer(images, text_embeds = text_embeds, text_masks = text_masks, unet_number = i)
+    loss = trainer(
+        images,
+        text_embeds = text_embeds,
+        text_masks = text_masks,
+        unet_number = i,
+        max_batch_size = 4        # auto divide the batch of 64 up into batch size of 4 and accumulate gradients, so it all fits in memory
+    )
+
     trainer.update(unet_number = i)
 
 # do the above for many many many many steps
