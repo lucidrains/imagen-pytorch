@@ -1217,6 +1217,7 @@ class Imagen(nn.Module):
         *,
         image_sizes,                                # for cascading ddpm, image size at each stage
         text_encoder_name = DEFAULT_T5_NAME,
+        text_embed_dim = None,
         channels = 3,
         timesteps = 1000,
         cond_drop_prob = 0.1,
@@ -1282,8 +1283,8 @@ class Imagen(nn.Module):
         # get text encoder
 
         self.text_encoder_name = text_encoder_name
-        self.text_embed_dim = get_encoded_dim(text_encoder_name)
-
+        #self.text_embed_dim = get_encoded_dim(text_encoder_name)
+        self.text_embed_dim = text_embed_dim if text_embed_dim is not None else get_encoded_dim(self.text_encoder_name)
         # construct unets
 
         self.unets = nn.ModuleList([])
