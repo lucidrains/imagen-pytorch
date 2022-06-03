@@ -226,7 +226,7 @@ class ImagenTrainer(nn.Module):
         use_ema = True,
         lr = 1e-4,
         eps = 1e-8,
-        max_grad_norm = 0.5,
+        max_grad_norm = None,
         amp = False,
         group_wd_params = True,
         warmup_steps = None,
