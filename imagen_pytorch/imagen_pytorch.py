@@ -1,7 +1,6 @@
 import math
 from typing import List
 from tqdm import tqdm
-from inspect import isfunction
 from functools import partial, wraps
 from contextlib import contextmanager
 from collections import namedtuple
@@ -45,7 +44,7 @@ def maybe(fn):
 def default(val, d):
     if exists(val):
         return val
-    return d() if isfunction(d) else d
+    return d() if callable(d) else d
 
 def cast_tuple(val, length = 1):
     if isinstance(val, list):
@@ -133,11 +132,6 @@ def extract(a, t, x_shape):
     b, *_ = t.shape
     out = a.gather(-1, t)
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
-
-def noise_like(shape, device, repeat=False):
-    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
-    noise = lambda: torch.randn(shape, device=device)
-    return repeat_noise() if repeat else noise()
 
 def meanflat(x):
     return x.mean(dim = tuple(range(1, len(x.shape))))
@@ -1388,10 +1382,10 @@ class Imagen(nn.Module):
         return model_mean, posterior_variance, posterior_log_variance
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True, repeat_noise = False):
+    def p_sample(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True):
         b, *_, device = *x.shape, x.device
         model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised, learned_variance = learned_variance)
-        noise = noise_like(x.shape, device, repeat_noise)
+        noise = torch.randn_like(x)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
