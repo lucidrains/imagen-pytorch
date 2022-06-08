@@ -276,7 +276,6 @@ class GaussianDiffusion(nn.Module):
 # gaussian diffusion with continuos time helper functions and classes
 # large part of this was thanks to @crowsonkb at https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py
 
-@torch.jit.script
 def beta_linear_log_snr(t):
     return -torch.log(expm1(1e-4 + 10 * (t ** 2)))
 
@@ -318,7 +317,7 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
         alpha_next, sigma_next = log_snr_to_alpha_sigma(log_snr_next)
 
         # c - as defined near eq 33
-        c = -expm1(log_snr_next - log_snr)
+        c = -expm1(log_snr - log_snr_next)
 
         # (eq. 31) - still need to derive x_start, dynamic threshold, before calculating posterior mean
         # as noted in the first comment of openreview, the equation in the paper is incorrect, and missing a sigma
