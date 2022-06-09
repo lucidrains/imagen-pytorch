@@ -51,18 +51,19 @@ imagen = Imagen(
     image_sizes = (64, 256),
     beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
-    cond_drop_prob = 0.1
+    cond_drop_prob = 0.5
 ).cuda()
 
-# mock images and text (get a lot of this)
+# mock images (get a lot of this) and text encodings from large T5
 
-texts = ['example text'] * 4
+text_embeds = torch.randn(4, 256, 768).cuda()
+text_masks = torch.ones(4, 256).bool().cuda()
 images = torch.randn(4, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
 
 for i in (1, 2):
-    loss = imagen(images, texts = texts, unet_number = i)
+    loss = imagen(images, text_embeds = text_embeds, text_masks = text_masks, unet_number = i)
     loss.backward()
 
 # do the above for many many many many steps
@@ -75,6 +76,21 @@ images = imagen.sample(texts = [
 ], cond_scale = 2.)
 
 images.shape # (3, 3, 256, 256)
+```
+
+For simpler training, you can directly supply text strings instead of precomputing text encodings.
+
+```python
+# mock images and text (get a lot of this)
+
+texts = ['example text'] * 4
+images = torch.randn(4, 3, 256, 256).cuda()
+
+# feed images into imagen, training each unet in the cascade
+
+for i in (1, 2):
+    loss = imagen(images, texts = texts, unet_number = i)
+    loss.backward()
 ```
 
 With the `ImagenTrainer` wrapper class, the exponential moving averages for all of the U-nets in the cascading DDPM will be automatically taken care of when calling `update`
@@ -110,16 +126,17 @@ imagen = Imagen(
     image_sizes = (64, 256),
     beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
-    cond_drop_prob = 0.1
+    cond_drop_prob = 0.5
 ).cuda()
 
 # wrap imagen with the trainer class
 
 trainer = ImagenTrainer(imagen)
 
-# mock images and text (get a lot of this)
+# mock images (get a lot of this) and text encodings from large T5
 
-texts = ['example text'] * 64
+text_embeds = torch.randn(64, 256, 1024).cuda()
+text_masks = torch.ones(64, 256).bool().cuda()
 images = torch.randn(64, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
@@ -127,7 +144,8 @@ images = torch.randn(64, 3, 256, 256).cuda()
 for i in (1, 2):
     loss = trainer(
         images,
-        texts = texts
+        text_embeds = text_embeds,
+        text_masks = text_masks,
         unet_number = i,
         max_batch_size = 4        # auto divide the batch of 64 up into batch size of 4 and accumulate gradients, so it all fits in memory
     )
