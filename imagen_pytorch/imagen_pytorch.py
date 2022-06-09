@@ -279,8 +279,9 @@ class GaussianDiffusion(nn.Module):
 def beta_linear_log_snr(t):
     return -torch.log(expm1(1e-4 + 10 * (t ** 2)))
 
-def alpha_cosine_log_snr(t):
-    raise NotImplementedError
+def alpha_cosine_log_snr(t, s = 0.008):
+    alphas_cumprod = torch.cos((t + s) / (1 + s) * torch.pi * 0.5) ** 2
+    return torch.log(1 / (1 - alphas_cumprod) - 1)
 
 def log_snr_to_alpha_sigma(log_snr):
     return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
@@ -291,7 +292,7 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
         if beta_schedule == 'linear':
             self.log_snr = beta_linear_log_snr
         elif beta_schedule == "cosine":
-            raise NotImplementedError
+            self.log_snr = alpha_cosine_log_snr
         else:
             raise ValueError(f'invalid noise schedule {beta_schedule}')
 
@@ -335,7 +336,7 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
         log_snr = self.log_snr(t)
         log_snr = right_pad_dims_to(x_t, log_snr)
         alpha, sigma = log_snr_to_alpha_sigma(log_snr)
-        return (x_t - sigma * noise) / alpha.clamp(min = 1e-5)
+        return (x_t - sigma * noise) / alpha.clamp(min = 1e-8)
 
 # norms and residuals
 

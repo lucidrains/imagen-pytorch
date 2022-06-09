@@ -177,7 +177,7 @@ images.shape # (2, 3, 256, 256)
 - [x] add attention pooling option, in addition to cross attention and film
 - [x] add optional cosine decay schedule with warmup, for each unet, to trainer
 - [x] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
-- [ ] figure out log(snr) for alpha cosine noise schedule. brute force if needed
+- [x] figure out log(snr) for alpha cosine noise schedule. brute force if needed
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] exercise efficient attention expertise + explore skip layer excitation
 - [ ] try out grid attention
