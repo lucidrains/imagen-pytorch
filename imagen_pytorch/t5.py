@@ -1,5 +1,8 @@
 import torch
+import transformers
 from transformers import T5Tokenizer, T5EncoderModel, T5Config
+
+transformers.logging.set_verbosity_error()
 
 def exists(val):
     return val is not None

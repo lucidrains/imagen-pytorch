@@ -193,6 +193,7 @@ images.shape # (2, 3, 256, 256)
 - [x] add optional cosine decay schedule with warmup, for each unet, to trainer
 - [x] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
 - [x] figure out log(snr) for alpha cosine noise schedule.
+- [x] suppress the transformers warning because only T5encoder is used
 - [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] exercise efficient attention expertise + explore skip layer excitation
@@ -200,7 +201,6 @@ images.shape # (2, 3, 256, 256)
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
 - [ ] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
-- [ ] suppress the transformers warning because only T5encoder is used
 
 ## Citations
 
