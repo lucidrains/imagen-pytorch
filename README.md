@@ -206,10 +206,11 @@ images.shape # (2, 3, 256, 256)
 - [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] explore skip layer excitation in unet decoder
-- [ ] try out grid attention, compare with linear attention + depthwise convs on qkv
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
 - [ ] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
+- [ ] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections)
+- [ ] take care of huggingface accelerate integration
 
 ## Citations
 
