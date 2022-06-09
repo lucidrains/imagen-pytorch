@@ -280,8 +280,7 @@ def beta_linear_log_snr(t):
     return -torch.log(expm1(1e-4 + 10 * (t ** 2)))
 
 def alpha_cosine_log_snr(t, s = 0.008):
-    alphas_cumprod = torch.cos((t + s) / (1 + s) * torch.pi * 0.5) ** 2
-    return torch.log(1 / (1 - alphas_cumprod) - 1)
+    return -log((torch.cos((t + s) / (1 + s) * torch.pi * 0.5) ** -2) - 1)
 
 def log_snr_to_alpha_sigma(log_snr):
     return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
