@@ -239,10 +239,10 @@ class GaussianDiffusion(nn.Module):
     def get_condition(self, times):
         return times
 
-    def get_sampling_timesteps(self, *, batch, device):
+    def get_sampling_timesteps(self, batch, *, device):
         time_transitions = []
 
-        for _ in reversed(range(self.num_timesteps)):
+        for i in reversed(range(self.num_timesteps)):
             time_transitions.append((torch.full((batch,), i, device = device, dtype = torch.long), None))
 
         return time_transitions
