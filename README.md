@@ -184,6 +184,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] try out grid attention, compare with linear attention + depthwise convs on qkv
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
+- [ ] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
 
 ## Citations
 
