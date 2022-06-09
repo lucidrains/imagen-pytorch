@@ -51,7 +51,7 @@ imagen = Imagen(
     image_sizes = (64, 256),
     beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
-    cond_drop_prob = 0.5
+    cond_drop_prob = 0.1
 ).cuda()
 
 # mock images (get a lot of this) and text encodings from large T5
