@@ -1622,6 +1622,8 @@ class Imagen(nn.Module):
         times = noise_scheduler.sample_random_times(b, device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
+
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
             text_embeds, text_masks = map(lambda t: t.to(image.device), (text_embeds, text_masks))
 

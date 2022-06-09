@@ -200,6 +200,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
 - [ ] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
+- [ ] suppress the transformers warning because only T5encoder is used
 
 ## Citations
 
