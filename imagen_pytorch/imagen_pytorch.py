@@ -1,4 +1,5 @@
 import math
+import copy
 from typing import List
 from tqdm import tqdm
 from functools import partial, wraps
@@ -849,6 +850,7 @@ class Unet(nn.Module):
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
+        fourier_embed_time_or_noise = True,
         out_dim = None,
         dim_mults=(1, 2, 4, 8),
         channels = 3,
@@ -901,19 +903,30 @@ class Unet(nn.Module):
         cond_dim = default(cond_dim, dim)
         time_cond_dim = dim * 4
 
-        self.to_time_hiddens = nn.Sequential(
-            SinusoidalPosEmb(dim),
-            nn.Linear(dim, time_cond_dim),
-            nn.SiLU()
-        )
+        # embedding time for discrete gaussian diffusion or log(snr) noise for continuous version
 
-        self.to_lowres_time_hiddens = None
-        if lowres_cond:
-            self.to_lowres_time_hiddens = nn.Sequential(
+        self.fourier_embed_time_or_noise = fourier_embed_time_or_noise
+
+        if fourier_embed_time_or_noise:
+            self.to_time_hiddens = nn.Sequential(
                 SinusoidalPosEmb(dim),
                 nn.Linear(dim, time_cond_dim),
                 nn.SiLU()
             )
+        else:
+            self.to_time_hiddens = nn.Sequential(
+                Rearrange('... -> ... 1'),
+                nn.Linear(1, time_cond_dim),
+                nn.SiLU(),
+                nn.LayerNorm(time_cond_dim),
+                nn.Linear(time_cond_dim, time_cond_dim),
+                nn.SiLU(),
+                nn.LayerNorm(time_cond_dim)
+            )
+
+        self.to_lowres_time_hiddens = None
+        if lowres_cond:
+            self.to_lowres_time_hiddens = copy.deepcopy(self.to_time_hiddens)
             time_cond_dim *= 2
 
         # project to time tokens as well as time hiddens
@@ -1029,12 +1042,14 @@ class Unet(nn.Module):
         text_embed_dim,
         channels,
         channels_out,
-        cond_on_text
+        cond_on_text,
+        fourier_embed_time_or_noise
     ):
         if lowres_cond == self.lowres_cond and \
             channels == self.channels and \
             cond_on_text == self.cond_on_text and \
             text_embed_dim == self._locals['text_embed_dim'] and \
+            fourier_embed_time_or_noise == self.fourier_embed_time_or_noise and \
             channels_out == self.channels_out:
             return self
 
@@ -1043,7 +1058,8 @@ class Unet(nn.Module):
             text_embed_dim = text_embed_dim,
             channels = channels,
             channels_out = channels_out,
-            cond_on_text = cond_on_text
+            cond_on_text = cond_on_text,
+            fourier_embed_time_or_noise = fourier_embed_time_or_noise
         )
 
         return self.__class__(**{**self._locals, **updated_kwargs})
@@ -1320,7 +1336,8 @@ class Imagen(nn.Module):
                 cond_on_text = self.condition_on_text,
                 text_embed_dim = self.text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
-                channels_out = unet_channels_out
+                channels_out = unet_channels_out,
+                fourier_embed_time_or_noise = not continuous_times
             )
 
             self.unets.append(one_unet)
