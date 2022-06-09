@@ -860,6 +860,7 @@ class Unet(nn.Module):
         layer_attns = True,
         attend_at_middle = True, # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
         layer_cross_attns = True,
+        use_linear_attn = False,
         cond_on_text = True,
         max_text_len = 256,
         init_dim = None,
@@ -974,6 +975,10 @@ class Unet(nn.Module):
         if cross_embed_downsample:
             downsample_klass = partial(CrossEmbedLayer, kernel_sizes = cross_embed_downsample_kernel_sizes)
 
+        # whether to use linear attention or not for layers where normal attention is computationally prohibitive
+
+        attn_substitute = partial(LinearAttention, heads = attn_heads, dim_head = attn_dim_head) if use_linear_attn else nn.Identity
+
         # layers
 
         self.downs = nn.ModuleList([])
@@ -990,7 +995,7 @@ class Unet(nn.Module):
             self.downs.append(nn.ModuleList([
                 ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
-                TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else nn.Identity(),
+                TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else attn_substitute(dim_out),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
             ]))
 
@@ -1006,7 +1011,7 @@ class Unet(nn.Module):
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
-                TransformerBlock(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else nn.Identity(),
+                TransformerBlock(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else attn_substitute(dim_in),
                 Upsample(dim_in)
             ]))
 

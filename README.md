@@ -1,6 +1,6 @@
 <img src="./imagen.png" width="450px"></img>
 
-## Imagen - Pytorch (wip)
+## Imagen - Pytorch
 
 Implementation of <a href="https://gweb-research-imagen.appspot.com/">Imagen</a>, Google's Text-to-Image Neural Network that beats DALL-E2, in Pytorch. It is the new SOTA for text-to-image synthesis.
 
@@ -78,12 +78,20 @@ images = imagen.sample(texts = [
 images.shape # (3, 3, 256, 256)
 ```
 
-For simpler training, you can directly supply text strings instead of precomputing text encodings.
+For simpler training, you can directly supply text strings instead of precomputing text encodings. (Although for scaling purposes, you will definitely want to precopmute the textual embeddings + mask)
+
+The number of textual captions must match the batch size of the images if you go this route.
 
 ```python
 # mock images and text (get a lot of this)
 
-texts = ['example text'] * 4
+texts = [
+    'a child screaming at finding a worm within a half-eaten apple',
+    'lizard running across the desert on two feet',
+    'waking up to a psychedelic landscape',
+    'seashells sparkling in the shallow waters'
+]
+
 images = torch.randn(4, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
@@ -194,9 +202,10 @@ images.shape # (2, 3, 256, 256)
 - [x] switch to continuous timesteps instead of discretized, as it seems that is what they used for all stages - first figure out the linear noise schedule case from the variational ddpm paper https://openreview.net/forum?id=2LdBqxc1Yv
 - [x] figure out log(snr) for alpha cosine noise schedule.
 - [x] suppress the transformers warning because only T5encoder is used
+- [x] allow setting for using linear attention on layers where full attention cannot be used
 - [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
-- [ ] exercise efficient attention expertise + explore skip layer excitation
+- [ ] explore skip layer excitation in unet decoder
 - [ ] try out grid attention, compare with linear attention + depthwise convs on qkv
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
@@ -209,15 +218,6 @@ images.shape # (2, 3, 256, 256)
     title   = {Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding},
     author  = {Chitwan Saharia and William Chan and Saurabh Saxena and Lala Li and Jay Whang and Emily L. Denton and Seyed Kamyar Seyed Ghasemipour and Burcu Karagol Ayan and Seyedeh Sara Mahdavi and Raphael Gontijo Lopes and Tim Salimans and Jonathan Ho and David Fleet and Mohammad Norouzi},
     year    = {2022}
-}
-```
-
-```bibtex
-@inproceedings{Tu2022MaxViTMV,
-    title   = {MaxViT: Multi-Axis Vision Transformer},
-    author  = {Zhengzhong Tu and Hossein Talebi and Han Zhang and Feng Yang and Peyman Milanfar and Alan Conrad Bovik and Yinxiao Li},
-    year    = {2022},
-    url     = {https://arxiv.org/abs/2204.01697}
 }
 ```
 
