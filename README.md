@@ -183,6 +183,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] exercise efficient attention expertise + explore skip layer excitation
 - [ ] try out grid attention, compare with linear attention + depthwise convs on qkv
 - [ ] consider just removing the discrete gaussian diffusion altogether
+- [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
 
 ## Citations
 
