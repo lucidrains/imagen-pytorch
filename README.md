@@ -182,6 +182,7 @@ images.shape # (2, 3, 256, 256)
 - [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] exercise efficient attention expertise + explore skip layer excitation
 - [ ] try out grid attention, compare with linear attention + depthwise convs on qkv
+- [ ] consider just removing the discrete gaussian diffusion altogether
 
 ## Citations
 
@@ -207,5 +208,15 @@ images.shape # (2, 3, 256, 256)
     title   = {Flamingo: a Visual Language Model for Few-Shot Learning},
     author  = {Jean-Baptiste Alayrac et al},
     year    = {2022}
+}
+```
+
+```bibtex
+@article{Choi2022PerceptionPT,
+    title   = {Perception Prioritized Training of Diffusion Models},
+    author  = {Jooyoung Choi and Jungbeom Lee and Chaehun Shin and Sungwon Kim and Hyunwoo J. Kim and Sung-Hoon Yoon},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2204.00227}
 }
 ```

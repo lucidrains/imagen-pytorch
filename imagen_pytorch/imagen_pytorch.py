@@ -76,7 +76,7 @@ def pad_tuple_to_length(t, length, fillvalue = None):
 
 # tensor helpers
 
-def log(t, eps = 1e-12):
+def log(t, eps: float = 1e-12):
     return torch.log(t.clamp(min = eps))
 
 def l2norm(t):
@@ -175,7 +175,6 @@ def cosine_beta_schedule(timesteps, s = 0.008, thres = 0.999):
     betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
     return torch.clip(betas, 0, thres)
 
-
 def linear_beta_schedule(timesteps):
     scale = 1000 / timesteps
     beta_start = scale * 0.0001
@@ -231,13 +230,22 @@ class GaussianDiffusion(nn.Module):
         register_buffer('posterior_mean_coef1', betas * torch.sqrt(alphas_cumprod_prev) / (1. - alphas_cumprod))
         register_buffer('posterior_mean_coef2', (1. - alphas_cumprod_prev) * torch.sqrt(alphas) / (1. - alphas_cumprod))
 
-    def get_times(self, batch_size, noise_level):
-        device = self.betas.device
+    def get_times(self, batch_size, noise_level, *, device):
         return torch.full((batch_size,), int(self.num_timesteps * noise_level), device = device, dtype = torch.long)
 
-    def sample_random_times(self, batch_size):
-        device = self.betas.device
+    def sample_random_times(self, batch_size, *, device):
         return torch.randint(0, self.num_timesteps, (batch_size,), device = device, dtype = torch.long)
+
+    def get_condition(self, times):
+        return times
+
+    def get_sampling_timesteps(self, *, batch, device):
+        time_transitions = []
+
+        for _ in reversed(range(self.num_timesteps)):
+            time_transitions.append((torch.full((batch,), i, device = device, dtype = torch.long), None))
+
+        return time_transitions
 
     def get_learned_posterior_log_variance(self, var_interp_frac_unnormalized, x_t, t):
         # if learned variance, posterior variance and posterior log variance are predicted by the network
@@ -250,7 +258,7 @@ class GaussianDiffusion(nn.Module):
         posterior_log_variance = var_interp_frac * max_log + (1 - var_interp_frac) * min_log
         return posterior_log_variance
 
-    def q_posterior(self, x_start, x_t, t):
+    def q_posterior(self, x_start, x_t, t, **kwargs):
         posterior_mean = (
             extract(self.posterior_mean_coef1, t, x_t.shape) * x_start +
             extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
@@ -276,17 +284,19 @@ class GaussianDiffusion(nn.Module):
 # gaussian diffusion with continuos time helper functions and classes
 # large part of this was thanks to @crowsonkb at https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py
 
+@torch.jit.script
 def beta_linear_log_snr(t):
     return -torch.log(expm1(1e-4 + 10 * (t ** 2)))
 
-def alpha_cosine_log_snr(t, s = 0.008):
+@torch.jit.script
+def alpha_cosine_log_snr(t, s: float = 0.008):
     return -log((torch.cos((t + s) / (1 + s) * torch.pi * 0.5) ** -2) - 1)
 
 def log_snr_to_alpha_sigma(log_snr):
     return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
 
-class GaussianDiffusionContinuousTimes(GaussianDiffusion):
-    def __init__(self, *, beta_schedule, **kwargs):
+class GaussianDiffusionContinuousTimes(nn.Module):
+    def __init__(self, *, beta_schedule, timesteps):
         super().__init__()
         if beta_schedule == 'linear':
             self.log_snr = beta_linear_log_snr
@@ -295,18 +305,30 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
         else:
             raise ValueError(f'invalid noise schedule {beta_schedule}')
 
-    def get_times(self, batch_size, noise_level):
-        device = self.betas.device
+        self.num_timesteps = timesteps
+
+    def get_times(self, batch_size, noise_level, *, device):
         return torch.full((batch_size,), noise_level, device = device, dtype = torch.long)
 
-    def sample_random_times(self, batch_size, max_thres = 0.999):
-        device = self.betas.device
+    def sample_random_times(self, batch_size, max_thres = 0.999, *, device):
         return torch.zeros((batch_size,), device = device).float().uniform_(0, max_thres)
+
+    def get_condition(self, times):
+        return maybe(self.log_snr)(times)
+
+    def get_sampling_timesteps(self, batch, *, device):
+        times = torch.linspace(1., 0., self.num_timesteps + 1, device = device)
+        times = repeat(times, 't -> b t', b = batch)
+        times = torch.stack((times[:, :-1], times[:, 1:]), dim = 0)
+        times = times.unbind(dim = -1)
+        return times
 
     def get_learned_posterior_log_variance(self, var_interp_frac_unnormalized, x_t, t):
         raise NotImplementedError
 
-    def q_posterior(self, x_start, x_t, t, t_next):
+    def q_posterior(self, x_start, x_t, t, *, t_next = None):
+        t_next = default(t_next, lambda: (t - 1. / self.num_timesteps).clamp(min = 0.))
+
         """ https://openreview.net/attachment?id=2LdBqxc1Yv&name=supplementary_material """
         log_snr = self.log_snr(t)
         log_snr_next = self.log_snr(t_next)
@@ -326,7 +348,7 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
 
     def q_sample(self, x_start, t, noise = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
-        log_snr = self.log_snr(x_start, t)
+        log_snr = self.log_snr(t)
         log_snr = right_pad_dims_to(x_start, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr)
         return alpha * x_start + sigma * noise
@@ -343,7 +365,7 @@ class LayerNorm(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.gamma = nn.Parameter(torch.ones(dim))
-        self.register_buffer("beta", torch.zeros(dim))
+        self.register_buffer('beta', torch.zeros(dim))
 
     def forward(self, x):
         return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
@@ -1217,7 +1239,7 @@ class Imagen(nn.Module):
         learned_variance = True,
         vb_loss_weight = 0.001,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
-        continuous_times = False,
+        continuous_times = True,
         dynamic_thresholding_percentile = 0.9       # unsure what this was based on perusal of paper
     ):
         super().__init__()
@@ -1255,6 +1277,10 @@ class Imagen(nn.Module):
 
         timesteps = cast_tuple(timesteps, num_unets)
         beta_schedules = cast_tuple(beta_schedules, num_unets)
+
+        if continuous_times:
+            # just turn off learned variance for continuous times gaussian diffusion
+            learned_variance = False
 
         noise_scheduler_klass = GaussianDiffusion if not continuous_times else GaussianDiffusionContinuousTimes
         self.noise_schedulers = nn.ModuleList([])
@@ -1321,6 +1347,18 @@ class Imagen(nn.Module):
 
         self.dynamic_thresholding_percentile = dynamic_thresholding_percentile
 
+        # one temp parameter for keeping track of device
+
+        self.register_buffer('_temp', torch.tensor([0.]), persistent = False)
+
+        # default to device of unets passed in
+
+        self.to(next(self.unets.parameters()).device)
+
+    @property
+    def device(self):
+        return self._temp.device
+
     def get_unet(self, unet_number):
         assert 0 < unet_number <= len(self.unets)
         index = unet_number - 1
@@ -1344,10 +1382,10 @@ class Imagen(nn.Module):
         for unet, device in zip(self.unets, devices):
             unet.to(device)
 
-    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, clip_denoised = True, learned_variance = False, cond_scale = 1., model_output = None):
+    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, clip_denoised = True, learned_variance = False, cond_scale = 1., model_output = None, t_next = None):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
-        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, t, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times))
+        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = noise_scheduler.get_condition(lowres_noise_times)))
 
         if learned_variance:
             pred, var_interp_frac_unnormalized = pred.chunk(2, dim = 1)
@@ -1368,7 +1406,7 @@ class Imagen(nn.Module):
             s = s.view(-1, *((1,) * (x_recon.ndim - 1)))
             x_recon = x_recon.clamp(-s, s) / s
 
-        model_mean, posterior_variance, posterior_log_variance = noise_scheduler.q_posterior(x_start=x_recon, x_t=x, t=t)
+        model_mean, posterior_variance, posterior_log_variance = noise_scheduler.q_posterior(x_start = x_recon, x_t = x, t = t, t_next = t_next)
 
         if learned_variance:
             posterior_log_variance = noise_scheduler.get_learned_posterior_log_variance(var_interp_frac_unnormalized, x_t = x, t = t)
@@ -1377,9 +1415,9 @@ class Imagen(nn.Module):
         return model_mean, posterior_variance, posterior_log_variance
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True):
+    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  learned_variance = False, clip_denoised = True):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised, learned_variance = learned_variance)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised, learned_variance = learned_variance)
         noise = torch.randn_like(x)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
@@ -1387,19 +1425,20 @@ class Imagen(nn.Module):
 
     @torch.no_grad()
     def p_sample_loop(self, unet, shape, *, noise_scheduler, learned_variance = False, clip_denoised = True, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
-        device = noise_scheduler.betas.device
+        device = self.device
 
         batch = shape[0]
         img = torch.randn(shape, device = device)
         lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
 
-        num_timesteps = noise_scheduler.num_timesteps
+        timesteps = noise_scheduler.get_sampling_timesteps(batch, device = device)
 
-        for i in tqdm(reversed(range(0, num_timesteps)), desc = 'sampling loop time step', total = num_timesteps):
+        for times, times_next in tqdm(timesteps, desc = 'sampling loop time step', total = len(timesteps)):
             img = self.p_sample(
                 unet,
                 img,
-                torch.full((batch,), i, device = device, dtype = torch.long),
+                times,
+                t_next = times_next,
                 text_embeds = text_embeds,
                 text_mask = text_mask,
                 cond_scale = cond_scale,
@@ -1455,7 +1494,7 @@ class Imagen(nn.Module):
                 shape = (batch_size, channel, image_size, image_size)
 
                 if unet.lowres_cond:
-                    lowres_noise_times = noise_scheduler.get_times(batch_size, lowres_sample_noise_level)
+                    lowres_noise_times = noise_scheduler.get_times(batch_size, lowres_sample_noise_level, device = device)
 
                     lowres_cond_img = resize_image_to(img, image_size)
                     lowres_cond_img = noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
@@ -1484,7 +1523,7 @@ class Imagen(nn.Module):
         pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
         return pil_images # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
-    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False):
+    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False, times_next = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
@@ -1506,12 +1545,12 @@ class Imagen(nn.Module):
 
         # get prediction
 
-        model_output = unet(
+        model_output = unet.forward(
             x_noisy,
-            times,
+            noise_scheduler.get_condition(times),
             text_embeds = text_embeds,
             text_mask = text_mask,
-            lowres_noise_times = lowres_aug_times,
+            lowres_noise_times = noise_scheduler.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
         )
@@ -1534,7 +1573,7 @@ class Imagen(nn.Module):
 
         # if learning the variance, also include the extra weight kl loss
 
-        true_mean, _, true_log_variance_clipped = noise_scheduler.q_posterior(x_start = x_start, x_t = x_noisy, t = times)
+        true_mean, _, true_log_variance_clipped = noise_scheduler.q_posterior(x_start = x_start, x_t = x_noisy, t = times, t_next = times_next)
         model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x_noisy, t = times, noise_scheduler = noise_scheduler, clip_denoised = clip_denoised, learned_variance = True, model_output = model_output)
 
         # kl loss with detached model predicted mean, for stability reasons as in paper
@@ -1580,7 +1619,7 @@ class Imagen(nn.Module):
         check_shape(image, 'b c h w', c = self.channels)
         assert h >= target_image_size and w >= target_image_size
 
-        times = noise_scheduler.sample_random_times(b)
+        times = noise_scheduler.sample_random_times(b, device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
@@ -1595,7 +1634,7 @@ class Imagen(nn.Module):
         if exists(prev_image_size):
             lowres_cond_img = resize_image_to(image, prev_image_size)
             lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
-            lowres_aug_times = noise_scheduler.sample_random_times(b)
+            lowres_aug_times = noise_scheduler.sample_random_times(b, device = device)
 
         image = resize_image_to(image, target_image_size)
 
