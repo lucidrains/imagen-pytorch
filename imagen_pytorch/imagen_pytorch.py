@@ -306,9 +306,8 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
     def get_learned_posterior_log_variance(self, var_interp_frac_unnormalized, x_t, t):
         raise NotImplementedError
 
-    def q_posterior(self, pred_noise, x_t, t, t_next):
+    def q_posterior(self, x_start, x_t, t, t_next):
         """ https://openreview.net/attachment?id=2LdBqxc1Yv&name=supplementary_material """
-        # pred_noise needs to be replaced by x_start, which comes from predict_start_from_noise, intermediate is dynamically threshold (i think?)
         log_snr = self.log_snr(t)
         log_snr_next = self.log_snr(t_next)
         log_snr, log_snr_next = map(partial(right_pad_dims_to, x_t), (log_snr, log_snr_next))
@@ -318,10 +317,7 @@ class GaussianDiffusionContinuousTimes(GaussianDiffusion):
 
         # c - as defined near eq 33
         c = -expm1(log_snr - log_snr_next)
-
-        # (eq. 31) - still need to derive x_start, dynamic threshold, before calculating posterior mean
-        # as noted in the first comment of openreview, the equation in the paper is incorrect, and missing a sigma
-        posterior_mean = (alpha_next / alpha) * (x_t - c * sigma * pred_noise)
+        posterior_mean = alpha_next * (x_t * (1 - c) / alpha + c * x_start)
 
         # following (eq. 33)
         posterior_variance = (sigma_next ** 2) * c
