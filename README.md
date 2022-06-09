@@ -78,6 +78,21 @@ images = imagen.sample(texts = [
 images.shape # (3, 3, 256, 256)
 ```
 
+For simpler training, you can directly supply text strings instead of precomputing text encodings.
+
+```python
+# mock images and text (get a lot of this)
+
+texts = ['example text'] * 4
+images = torch.randn(4, 3, 256, 256).cuda()
+
+# feed images into imagen, training each unet in the cascade
+
+for i in (1, 2):
+    loss = imagen(images, texts = texts, unet_number = i)
+    loss.backward()
+```
+
 With the `ImagenTrainer` wrapper class, the exponential moving averages for all of the U-nets in the cascading DDPM will be automatically taken care of when calling `update`
 
 ```python
@@ -111,7 +126,7 @@ imagen = Imagen(
     image_sizes = (64, 256),
     beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
-    cond_drop_prob = 0.5
+    cond_drop_prob = 0.1
 ).cuda()
 
 # wrap imagen with the trainer class
