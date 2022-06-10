@@ -264,6 +264,7 @@ images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 - [ ] explore skip layer excitation in unet decoder
 - [ ] take care of huggingface accelerate integration
 - [ ] build out CLI tool for training, resuming training, and one-line generation of image
+- [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper
 
 ## Citations
 
