@@ -690,7 +690,8 @@ class LinearAttention(nn.Module):
         self,
         dim,
         dim_head = 32,
-        heads = 8
+        heads = 8,
+        dropout = 0.05
     ):
         super().__init__()
         self.scale = dim_head ** -0.5
@@ -699,7 +700,24 @@ class LinearAttention(nn.Module):
         self.norm = ChanLayerNorm(dim)
 
         self.nonlin = nn.SiLU()
-        self.to_qkv = nn.Conv2d(dim, inner_dim * 3, 1, bias = False)
+
+        self.to_q = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Conv2d(dim, inner_dim, 1, bias = False),
+            nn.Conv2d(inner_dim, inner_dim, 3, bias = False, padding = 1)
+        )
+
+        self.to_k = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Conv2d(dim, inner_dim, 1, bias = False),
+            nn.Conv2d(inner_dim, inner_dim, 3, bias = False, padding = 1)
+        )
+
+        self.to_v = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Conv2d(dim, inner_dim, 1, bias = False),
+            nn.Conv2d(inner_dim, inner_dim, 3, bias = False, padding = 1)
+        )
 
         self.to_out = nn.Sequential(
             nn.Conv2d(inner_dim, dim, 1, bias = False),
@@ -710,7 +728,7 @@ class LinearAttention(nn.Module):
         h, x, y = self.heads, *fmap.shape[-2:]
 
         fmap = self.norm(fmap)
-        q, k, v = self.to_qkv(fmap).chunk(3, dim = 1)
+        q, k, v = map(lambda fn: fn(fmap), (self.to_q, self.to_k, self.to_v))
         q, k, v = rearrange_many((q, k, v), 'b (h c) x y -> (b h) (x y) c', h = h)
 
         q = q.softmax(dim = -1)
@@ -823,7 +841,8 @@ class Unet(nn.Module):
         cross_embed_downsample = False,
         cross_embed_downsample_kernel_sizes = (2, 4),
         attn_pool_text = True,
-        attn_pool_num_latents = 32
+        attn_pool_num_latents = 32,
+        dropout = 0.
     ):
         super().__init__()
         # save locals to take care of some hyperparameters for cascading DDPM
@@ -941,7 +960,7 @@ class Unet(nn.Module):
 
         # whether to use linear attention or not for layers where normal attention is computationally prohibitive
 
-        attn_substitute = partial(LinearAttention, heads = attn_heads, dim_head = attn_dim_head) if use_linear_attn else nn.Identity
+        full_attn_substitute = partial(LinearAttention, heads = attn_heads, dim_head = attn_dim_head, dropout = dropout) if use_linear_attn else nn.Identity
 
         # layers
 
@@ -959,7 +978,7 @@ class Unet(nn.Module):
             self.downs.append(nn.ModuleList([
                 ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
-                TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else attn_substitute(dim_out),
+                TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else full_attn_substitute(dim_out),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
             ]))
 
@@ -975,7 +994,7 @@ class Unet(nn.Module):
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
-                TransformerBlock(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else attn_substitute(dim_in),
+                TransformerBlock(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else full_attn_substitute(dim_in),
                 Upsample(dim_in)
             ]))
 
@@ -1212,7 +1231,7 @@ class Imagen(nn.Module):
         continuous_times = True,
         p2_loss_weight_gamma = 0.5,                 # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time
         p2_loss_weight_k = 1,
-        dynamic_thresholding_percentile = 0.9       # unsure what this was based on perusal of paper
+        dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
     ):
         super().__init__()
 
@@ -1499,7 +1518,7 @@ class Imagen(nn.Module):
 
         # get prediction
 
-        model_output = unet.forward(
+        pred = unet.forward(
             x_noisy,
             noise_scheduler.get_condition(times),
             text_embeds = text_embeds,
@@ -1508,8 +1527,6 @@ class Imagen(nn.Module):
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
         )
-
-        pred = model_output
 
         losses = self.loss_fn(pred, noise, reduction = 'none')
         losses = reduce(losses, 'b ... -> b', 'mean')

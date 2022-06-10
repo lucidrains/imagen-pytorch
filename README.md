@@ -260,9 +260,9 @@ images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 - [x] removed learned variance
 - [x] add p2 loss weighting for continuous time
 - [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
+- [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [ ] explore skip layer excitation in unet decoder
 - [ ] consider just removing the discrete gaussian diffusion altogether
-- [ ] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections)
 - [ ] take care of huggingface accelerate integration
 
 ## Citations
@@ -290,5 +290,23 @@ images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2204.00227}
+}
+```
+
+```bibtex
+@inproceedings{Sankararaman2022BayesFormerTW,
+    title   = {BayesFormer: Transformer with Uncertainty Estimation},
+    author  = {Karthik Abinav Sankararaman and Sinong Wang and Han Fang},
+    year    = {2022}
+}
+```
+
+```bibtex
+@article{So2021PrimerSF,
+    title   = {Primer: Searching for Efficient Transformers for Language Modeling},
+    author  = {David R. So and Wojciech Ma'nke and Hanxiao Liu and Zihang Dai and Noam M. Shazeer and Quoc V. Le},
+    journal = {ArXiv},
+    year    = {2021},
+    volume  = {abs/2109.08668}
 }
 ```
