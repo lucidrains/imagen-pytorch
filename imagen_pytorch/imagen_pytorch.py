@@ -1539,20 +1539,25 @@ class Imagen(nn.Module):
                 )
 
                 if include_intermediate_images:
-                    intermediates.append(img)
+                    intermediates.append(T.functional.resize(img, self.image_sizes[-1], T.InterpolationMode.NEAREST))
 
             if exists(stop_at_unet_number) and stop_at_unet_number == unet_number:
                 break
         
         if include_intermediate_images:
-            # Need to resize all intermediates to the final image size and stack all images together
-            intermediates = [resize_image_to(img, self.image_sizes[-1]) for img_group in intermediates for img in img_group]
-            img = torch.stack([img.squeeze() for img in intermediates])
+            # transform img to shape [unets, batch_size, channels, image_size, image_size]
+            img = torch.stack(intermediates, dim = 0)
 
         if not return_pil_images:
             return img
 
-        pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
+        if not include_intermediate_images:
+            pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
+        else:
+            pil_images = []
+            for intermediate_img in intermediates:
+                pil_images.extend(list(map(T.ToPILImage(), intermediate_img.unbind(dim = 0))))
+        
         return pil_images # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
     def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, learned_variance = False, clip_denoised = False, times_next = None):
