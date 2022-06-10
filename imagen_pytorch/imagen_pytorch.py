@@ -1341,42 +1341,39 @@ class Imagen(nn.Module):
         for unet, device in zip(self.unets, devices):
             unet.to(device)
 
-    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, clip_denoised = True, cond_scale = 1., model_output = None, t_next = None):
+    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
         pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = noise_scheduler.get_condition(lowres_noise_times)))
 
-        x_recon = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
+        x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
 
-        if clip_denoised:
-            # following pseudocode in appendix
-            # s is the dynamic threshold, determined by percentile of absolute values of reconstructed sample per batch element
+        # following pseudocode in appendix
+        # s is the dynamic threshold, determined by percentile of absolute values of reconstructed sample per batch element
 
-            s = torch.quantile(
-                rearrange(x_recon, 'b ... -> b (...)').abs(),
-                self.dynamic_thresholding_percentile,
-                dim = -1
-            )
+        s = torch.quantile(
+            rearrange(x_start, 'b ... -> b (...)').abs(),
+            self.dynamic_thresholding_percentile,
+            dim = -1
+        )
 
-            s.clamp_(min = 1.)
-            s = s.view(-1, *((1,) * (x_recon.ndim - 1)))
-            x_recon = x_recon.clamp(-s, s) / s
+        s.clamp_(min = 1.)
+        s = s.view(-1, *((1,) * (x_start.ndim - 1)))
+        x_start = x_start.clamp(-s, s) / s
 
-        model_mean, posterior_variance, posterior_log_variance = noise_scheduler.q_posterior(x_start = x_recon, x_t = x, t = t, t_next = t_next)
-
-        return model_mean, posterior_variance, posterior_log_variance
+        return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None,  clip_denoised = True):
+    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, clip_denoised = clip_denoised)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times)
         noise = torch.randn_like(x)
         # no noise when t == 0
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, unet, shape, *, noise_scheduler, clip_denoised = True, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
+    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
         device = self.device
 
         batch = shape[0]
@@ -1396,8 +1393,7 @@ class Imagen(nn.Module):
                 cond_scale = cond_scale,
                 lowres_cond_img = lowres_cond_img,
                 lowres_noise_times = lowres_noise_times,
-                noise_scheduler = noise_scheduler,
-                clip_denoised = clip_denoised
+                noise_scheduler = noise_scheduler
             )
 
         unnormalize_img = self.unnormalize_img(img)
@@ -1458,7 +1454,6 @@ class Imagen(nn.Module):
                     text_embeds = text_embeds,
                     text_mask = text_masks,
                     cond_scale = cond_scale,
-                    clip_denoised = True,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
                     noise_scheduler = noise_scheduler
@@ -1473,7 +1468,7 @@ class Imagen(nn.Module):
         pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
         return pil_images # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
-    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, clip_denoised = False, times_next = None):
+    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, times_next = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
