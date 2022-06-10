@@ -262,7 +262,6 @@ images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 - [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [ ] explore skip layer excitation in unet decoder
-- [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] take care of huggingface accelerate integration
 
 ## Citations
