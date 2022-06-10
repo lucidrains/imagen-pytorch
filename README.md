@@ -171,6 +171,59 @@ images = trainer.sample(texts = [
 images.shape # (2, 3, 256, 256)
 ```
 
+You can also train Imagen without text (unconditional image generation) as follows
+
+```python
+import torch
+from imagen_pytorch import Unet, Imagen, SRUnet256, ImagenTrainer
+
+# unets for unconditional imagen
+
+unet1 = Unet(
+    dim = 32,
+    dim_mults = (1, 2, 4),
+    num_resnet_blocks = 3,
+    layer_attns = (False, True, True),
+    layer_cross_attns = (False, True, True),
+    use_linear_attn = True
+)
+
+unet2 = SRUnet256(
+    dim = 32,
+    dim_mults = (1, 2, 4),
+    num_resnet_blocks = (2, 4, 8),
+    layer_attns = (False, False, True),
+    layer_cross_attns = (False, False, True)
+)
+
+# imagen, which contains the unets above (base unet and super resoluting ones)
+
+imagen = Imagen(
+    condition_on_text = False,   # this must be set to False for unconditional Imagen
+    unets = (unet1, unet2),
+    image_sizes = (64, 128),
+    beta_schedules = ('cosine', 'linear'),
+    timesteps = 1000
+)
+
+trainer = ImagenTrainer(imagen).cuda()
+
+# now get a ton of images and feed it through the Imagen trainer
+
+training_images = torch.randn(4, 3, 256, 256).cuda()
+
+# train each unet in concert, or separately (recommended) to completion
+
+for u in (1, 2):
+    loss = trainer(training_images, unet_number = u)
+    trainer.update(unet_number = u)
+
+# do the above for many many many many steps
+# now you can sample images unconditionally from the cascading unet(s)
+
+images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
+```
+
 ## Shoutouts
 
 - <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
@@ -206,7 +259,7 @@ images.shape # (2, 3, 256, 256)
 - [x] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
 - [x] removed learned variance
 - [x] add p2 loss weighting for continuous time
-- [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
+- [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [ ] explore skip layer excitation in unet decoder
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections)
