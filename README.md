@@ -171,6 +171,59 @@ images = trainer.sample(texts = [
 images.shape # (2, 3, 256, 256)
 ```
 
+You can also train Imagen without text (unconditional image generation) as follows
+
+```python
+import torch
+from imagen_pytorch import Unet, Imagen, SRUnet256, ImagenTrainer
+
+# unets for unconditional imagen
+
+unet1 = Unet(
+    dim = 32,
+    dim_mults = (1, 2, 4),
+    num_resnet_blocks = 3,
+    layer_attns = (False, True, True),
+    layer_cross_attns = (False, True, True),
+    use_linear_attn = True
+)
+
+unet2 = SRUnet256(
+    dim = 32,
+    dim_mults = (1, 2, 4),
+    num_resnet_blocks = (2, 4, 8),
+    layer_attns = (False, False, True),
+    layer_cross_attns = (False, False, True)
+)
+
+# imagen, which contains the unets above (base unet and super resoluting ones)
+
+imagen = Imagen(
+    condition_on_text = False,   # this must be set to False for unconditional Imagen
+    unets = (unet1, unet2),
+    image_sizes = (64, 128),
+    beta_schedules = ('cosine', 'linear'),
+    timesteps = 1000
+)
+
+trainer = ImagenTrainer(imagen).cuda()
+
+# now get a ton of images and feed it through the Imagen trainer
+
+training_images = torch.randn(4, 3, 256, 256).cuda()
+
+# train each unet in concert, or separately (recommended) to completion
+
+for u in (1, 2):
+    loss = trainer(training_images, unet_number = u)
+    trainer.update(unet_number = u)
+
+# do the above for many many many many steps
+# now you can sample images unconditionally from the cascading unet(s)
+
+images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
+```
+
 ## Shoutouts
 
 - <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
@@ -204,13 +257,13 @@ images.shape # (2, 3, 256, 256)
 - [x] suppress the transformers warning because only T5encoder is used
 - [x] allow setting for using linear attention on layers where full attention cannot be used
 - [x] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
-- [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
-- [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
+- [x] removed learned variance
+- [x] add p2 loss weighting for continuous time
+- [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
+- [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [ ] explore skip layer excitation in unet decoder
-- [ ] consider just removing the discrete gaussian diffusion altogether
-- [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
-- [ ] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections)
 - [ ] take care of huggingface accelerate integration
+- [ ] build out CLI tool for training, resuming training, and one-line generation of image
 
 ## Citations
 
@@ -237,5 +290,23 @@ images.shape # (2, 3, 256, 256)
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2204.00227}
+}
+```
+
+```bibtex
+@inproceedings{Sankararaman2022BayesFormerTW,
+    title   = {BayesFormer: Transformer with Uncertainty Estimation},
+    author  = {Karthik Abinav Sankararaman and Sinong Wang and Han Fang},
+    year    = {2022}
+}
+```
+
+```bibtex
+@article{So2021PrimerSF,
+    title   = {Primer: Searching for Efficient Transformers for Language Modeling},
+    author  = {David R. So and Wojciech Ma'nke and Hanxiao Liu and Zihang Dai and Noam M. Shazeer and Quoc V. Le},
+    journal = {ArXiv},
+    year    = {2021},
+    volume  = {abs/2109.08668}
 }
 ```
