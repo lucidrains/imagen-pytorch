@@ -1545,6 +1545,8 @@ class Imagen(nn.Module):
                 break
         
         if include_intermediate_images:
+            # Need to resize all intermediates to the final image size and stack all images together
+            intermediates = [resize_image_to(img, self.image_sizes[-1]) for img_group in intermediates for img in img_group]
             img = torch.stack([img.squeeze() for img in intermediates])
 
         if not return_pil_images:
