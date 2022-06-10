@@ -263,6 +263,7 @@ images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [ ] explore skip layer excitation in unet decoder
 - [ ] take care of huggingface accelerate integration
+- [ ] build out CLI tool for training, resuming training, and one-line generation of image
 
 ## Citations
 
