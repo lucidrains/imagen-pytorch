@@ -13,7 +13,7 @@ from torch import nn, einsum
 from torch.special import expm1
 import torchvision.transforms as T
 
-from einops import rearrange, repeat
+from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange, Reduce
 from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
@@ -228,7 +228,7 @@ class GaussianDiffusion(nn.Module):
         return (
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
-        )
+        ), None
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
@@ -301,9 +301,9 @@ class GaussianDiffusionContinuousTimes(nn.Module):
     def q_sample(self, x_start, t, noise = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
         log_snr = self.log_snr(t)
-        log_snr = right_pad_dims_to(x_start, log_snr)
-        alpha, sigma =  log_snr_to_alpha_sigma(log_snr)
-        return alpha * x_start + sigma * noise
+        log_snr_padded_dim = right_pad_dims_to(x_start, log_snr)
+        alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
+        return alpha * x_start + sigma * noise, log_snr
 
     def predict_start_from_noise(self, x_t, t, noise):
         log_snr = self.log_snr(t)
@@ -1210,6 +1210,8 @@ class Imagen(nn.Module):
         condition_on_text = True,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         continuous_times = True,
+        p2_loss_weight_gamma = 0.5,                 # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time
+        p2_loss_weight_k = 1,
         dynamic_thresholding_percentile = 0.9       # unsure what this was based on perusal of paper
     ):
         super().__init__()
@@ -1305,6 +1307,13 @@ class Imagen(nn.Module):
         # dynamic thresholding
 
         self.dynamic_thresholding_percentile = dynamic_thresholding_percentile
+
+        # p2 loss weight
+
+        assert p2_loss_weight_gamma <= 2, 'in paper, they noticed any gamma greater than 2 is harmful'
+
+        self.p2_loss_weight_gamma = p2_loss_weight_gamma
+        self.p2_loss_weight_k = p2_loss_weight_k
 
         # one temp parameter for keeping track of device
 
@@ -1478,7 +1487,7 @@ class Imagen(nn.Module):
 
         # get x_t
 
-        x_noisy = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
+        x_noisy, maybe_log_snr = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
 
         # also noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
@@ -1502,8 +1511,14 @@ class Imagen(nn.Module):
 
         pred = model_output
 
-        loss = self.loss_fn(pred, noise)
-        return loss
+        losses = self.loss_fn(pred, noise, reduction = 'none')
+        losses = reduce(losses, 'b ... -> b', 'mean')
+
+        if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) and self.p2_loss_weight_gamma > 0:
+            loss_weight = (self.p2_loss_weight_k + maybe_log_snr.exp()) ** -self.p2_loss_weight_gamma
+            losses = losses * loss_weight
+
+        return losses.mean()
 
     def forward(
         self,

@@ -205,10 +205,10 @@ images.shape # (2, 3, 256, 256)
 - [x] allow setting for using linear attention on layers where full attention cannot be used
 - [x] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
 - [x] removed learned variance
+- [x] add p2 loss weighting for continuous time
 - [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [ ] explore skip layer excitation in unet decoder
 - [ ] consider just removing the discrete gaussian diffusion altogether
-- [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
 - [ ] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections)
 - [ ] take care of huggingface accelerate integration
 
