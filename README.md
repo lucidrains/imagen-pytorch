@@ -204,8 +204,8 @@ images.shape # (2, 3, 256, 256)
 - [x] suppress the transformers warning because only T5encoder is used
 - [x] allow setting for using linear attention on layers where full attention cannot be used
 - [x] force unets in continuous time case to use non-fouriered conditions (just pass the log(snr) through an MLP with optional layernorms), as that is what i have working locally
+- [x] removed learned variance
 - [ ] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
-- [ ] figure out if learned variance was used at all, and remove it if it was inconsequential
 - [ ] explore skip layer excitation in unet decoder
 - [ ] consider just removing the discrete gaussian diffusion altogether
 - [ ] consider p2 loss weight https://arxiv.org/abs/2204.00227, built at https://github.com/lucidrains/denoising-diffusion-pytorch , only if a researcher corroborates that it works well
