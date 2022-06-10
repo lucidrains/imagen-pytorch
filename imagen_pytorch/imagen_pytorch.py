@@ -1367,7 +1367,7 @@ class Imagen(nn.Module):
         )
 
         s.clamp_(min = 1.)
-        s = s.view(-1, *((1,) * (x_start.ndim - 1)))
+        s = right_pad_dims_to(x_start, s)
         x_start = x_start.clamp(-s, s) / s
 
         return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
