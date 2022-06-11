@@ -1490,17 +1490,16 @@ class Imagen(nn.Module):
                 )
 
                 if include_intermediate_images:
-                    intermediates.append(T.functional.resize(img, self.image_sizes[-1], T.InterpolationMode.NEAREST))
+                    intermediates.append(img)
 
             if exists(stop_at_unet_number) and stop_at_unet_number == unet_number:
                 break
-        
-        if include_intermediate_images:
-            # transform img to shape [unets, batch_size, channels, image_size, image_size]
-            img = torch.stack(intermediates, dim = 0)
 
         if not return_pil_images:
-            return img
+            if include_intermediate_images:
+                return intermediates
+            else:
+                return img
 
         if not include_intermediate_images:
             pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
