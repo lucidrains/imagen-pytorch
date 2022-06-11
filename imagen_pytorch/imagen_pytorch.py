@@ -1439,7 +1439,8 @@ class Imagen(nn.Module):
         lowres_sample_noise_level = None,
         stop_at_unet_number = None,
         return_pil_images = False,
-        device = None
+        device = None,
+        include_intermediate_images = False,
     ):
         device = default(device, lambda: next(self.parameters()).device)
 
@@ -1455,6 +1456,7 @@ class Imagen(nn.Module):
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
 
         img = None
+        intermediates = []
         is_cuda = next(self.parameters()).is_cuda
         device = next(self.parameters()).device
 
@@ -1487,13 +1489,25 @@ class Imagen(nn.Module):
                     noise_scheduler = noise_scheduler
                 )
 
+                if include_intermediate_images:
+                    intermediates.append(img)
+
             if exists(stop_at_unet_number) and stop_at_unet_number == unet_number:
                 break
 
         if not return_pil_images:
-            return img
+            if include_intermediate_images:
+                return intermediates
+            else:
+                return img
 
-        pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
+        if not include_intermediate_images:
+            pil_images = list(map(T.ToPILImage(), img.unbind(dim = 0)))
+        else:
+            pil_images = []
+            for intermediate_img in intermediates:
+                pil_images.extend(list(map(T.ToPILImage(), intermediate_img.unbind(dim = 0))))
+        
         return pil_images # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
     def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, times_next = None):
