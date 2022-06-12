@@ -1549,7 +1549,7 @@ class Imagen(nn.Module):
 
     def forward(
         self,
-        image,
+        images,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -1564,9 +1564,9 @@ class Imagen(nn.Module):
         noise_scheduler     = self.noise_schedulers[unet_index]
         target_image_size   = self.image_sizes[unet_index]
         prev_image_size     = self.image_sizes[unet_index - 1] if unet_index > 0 else None
-        b, c, h, w, device, = *image.shape, image.device
+        b, c, h, w, device, = *images.shape, images.device
 
-        check_shape(image, 'b c h w', c = self.channels)
+        check_shape(images, 'b c h w', c = self.channels)
         assert h >= target_image_size and w >= target_image_size
 
         times = noise_scheduler.sample_random_times(b, device = device)
@@ -1575,7 +1575,7 @@ class Imagen(nn.Module):
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
-            text_embeds, text_masks = map(lambda t: t.to(image.device), (text_embeds, text_masks))
+            text_embeds, text_masks = map(lambda t: t.to(images.device), (text_embeds, text_masks))
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
@@ -1584,10 +1584,10 @@ class Imagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(image, prev_image_size)
+            lowres_cond_img = resize_image_to(images, prev_image_size)
             lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
             lowres_aug_times = noise_scheduler.sample_random_times(b, device = device)
 
-        image = resize_image_to(image, target_image_size)
+        images = resize_image_to(images, target_image_size)
 
-        return self.p_losses(unet, image, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times)
+        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times)
