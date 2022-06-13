@@ -936,6 +936,18 @@ class Unet(nn.Module):
         self.max_text_len = max_text_len
         self.null_text_embed = nn.Parameter(torch.randn(1, max_text_len, cond_dim))
 
+        # for non-attention based text conditioning at all points in the network where time is also conditioned
+
+        self.to_text_non_attn_cond = None
+
+        if cond_on_text:
+            self.to_text_non_attn_cond = nn.Sequential(
+                nn.LayerNorm(cond_dim),
+                nn.Linear(cond_dim, time_cond_dim),
+                nn.SiLU(),
+                nn.Linear(time_cond_dim, time_cond_dim)
+            )
+
         # attention related params
 
         attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head)
@@ -1126,6 +1138,11 @@ class Unet(nn.Module):
 
             if exists(self.attn_pool):
                 text_tokens = self.attn_pool(text_tokens)
+
+            # extra non-attention conditioning by projecting and then summing text embeddings to time
+
+            mean_pooled_text_tokens = text_tokens.mean(dim = -2)
+            t = t + self.to_text_non_attn_cond(mean_pooled_text_tokens)
 
         # main conditioning tokens (c)
 
