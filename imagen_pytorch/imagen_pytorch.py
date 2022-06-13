@@ -988,9 +988,6 @@ class Unet(nn.Module):
         if cross_embed_downsample:
             downsample_klass = partial(CrossEmbedLayer, kernel_sizes = cross_embed_downsample_kernel_sizes)
 
-        # whether to use linear attention or not for layers where normal attention is computationally prohibitive
-
-
         # layers
 
         self.downs = nn.ModuleList([])
