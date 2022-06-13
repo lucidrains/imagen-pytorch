@@ -1,4 +1,3 @@
-import tkinter
 import os
 import torch
 import torchvision.transforms as T
@@ -11,15 +10,9 @@ from imagen_pytorch import Unet, Imagen, ImagenTrainer
 use_cpu = False
 device = torch.device('cpu') if use_cpu else torch.device('cuda:0')
 
-sample_texts = [
-    'text1',
-    'text2',
-    'text3'
-]
-
 save_dir = "<MODEL_DIRECTORY>"
 checkpoint_name = "checkpoint_latest.pth"
-
+batch_size = 10
 
 # unet for imagen
 
@@ -68,25 +61,11 @@ except:
     pass
 
 images = trainer.sample(
-    texts = sample_texts,
-    batch_size = 10,
+    batch_size = batch_size,
     return_all_unet_outputs = False,
     return_pil_images = True,
     cond_scale = 2.)
 
 for image in images:
     image.save(uuid()+".png")
-# for i in range(len(sample_texts)):
-#    images[i].save(str(i)+".png")
 
-
-#torch.save(images, "images.pt" )
-
-# images = torch.load("images.pt")
-# for i in range(len(sample_texts)):
-
-#     image = images[i]
-#     transformVector = T.ToPILImage()
-#     image = transformVector(image).convert("RGB")
-#     pyplot.imshow(image)
-#     pyplot.savefig(str(i)+".png")
