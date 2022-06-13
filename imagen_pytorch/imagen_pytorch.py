@@ -1424,6 +1424,7 @@ class Imagen(nn.Module):
                 noise_scheduler = noise_scheduler
             )
 
+        img.clamp_(-1., 1.)
         unnormalize_img = self.unnormalize_img(img)
         return unnormalize_img
 
