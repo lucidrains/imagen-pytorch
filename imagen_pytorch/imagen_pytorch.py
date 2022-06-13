@@ -942,6 +942,7 @@ class Unet(nn.Module):
 
         if cond_on_text:
             self.to_text_non_attn_cond = nn.Sequential(
+                nn.LayerNorm(cond_dim),
                 nn.Linear(cond_dim, time_cond_dim),
                 nn.SiLU(),
                 nn.Linear(time_cond_dim, time_cond_dim)
