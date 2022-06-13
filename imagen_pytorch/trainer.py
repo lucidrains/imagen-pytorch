@@ -266,7 +266,11 @@ def imagen_sample_in_chunks(fn):
         else:
             outputs = [fn(self, *chunked_args, **chunked_kwargs) for _, (chunked_args, chunked_kwargs) in split_args_and_kwargs(*args, split_size = max_batch_size, **kwargs)]
 
-        return torch.cat(outputs, dim = 0)
+        if isinstance(outputs[0], torch.Tensor):
+            return torch.cat(outputs, dim = 0)
+
+        return list(map(lambda t: torch.cat(t, dim = 0), list(zip(*outputs))))
+
     return inner
 
 class ImagenTrainer(nn.Module):
