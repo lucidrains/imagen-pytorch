@@ -226,7 +226,7 @@ images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 
 ## FAQ
 
-- Why are my generated images are not aligning well with the text?
+- Why are my generated images not aligning well with the text?
 
 Imagen uses an algorithm called <a href="https://openreview.net/forum?id=qw8AKxfYbI">Classifier Free Guidance</a>. When sampling, you apply a scale to the conditioning (text in this case) of greater than `1.0`.
 
