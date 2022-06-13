@@ -781,6 +781,24 @@ class TransformerBlock(nn.Module):
         x = self.ff(x) + x
         return x
 
+class LinearAttentionTransformerBlock(nn.Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        heads = 8,
+        dim_head = 32,
+        ff_mult = 2
+    ):
+        super().__init__()
+        self.attn = LinearAttention(dim = dim, heads = heads, dim_head = dim_head)
+        self.ff = ChanFeedForward(dim = dim, mult = ff_mult)
+
+    def forward(self, x):
+        x = self.attn(x) + x
+        x = self.ff(x) + x
+        return x
+
 class CrossEmbedLayer(nn.Module):
     def __init__(
         self,
@@ -972,7 +990,7 @@ class Unet(nn.Module):
 
         # whether to use linear attention or not for layers where normal attention is computationally prohibitive
 
-        full_attn_substitute = partial(LinearAttention, heads = attn_heads, dim_head = attn_dim_head, dropout = dropout) if use_linear_attn else nn.Identity
+        full_attn_substitute = partial(LinearAttentionTransformerBlock, heads = attn_heads, dim_head = attn_dim_head, dropout = dropout) if use_linear_attn else nn.Identity
 
         # layers
 
@@ -987,10 +1005,12 @@ class Unet(nn.Module):
             is_last = ind >= (num_resolutions - 1)
             layer_cond_dim = cond_dim if layer_cross_attn else None
 
+            transformer_block_klass = TransformerBlock if layer_attn else LinearAttentionTransformerBlock
+
             self.downs.append(nn.ModuleList([
                 ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
-                TransformerBlock(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else full_attn_substitute(dim_out),
+                transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
             ]))
 
@@ -1002,11 +1022,12 @@ class Unet(nn.Module):
 
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[1:]), *reversed_layer_params)):
             layer_cond_dim = cond_dim if layer_cross_attn else None
+            transformer_block_klass = TransformerBlock if layer_attn else LinearAttentionTransformerBlock
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
-                TransformerBlock(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult) if layer_attn else full_attn_substitute(dim_in),
+                transformer_block_klass(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 Upsample(dim_in)
             ]))
 
