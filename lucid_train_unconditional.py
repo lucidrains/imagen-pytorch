@@ -42,33 +42,6 @@ class CustomLabeledDataset(data.Dataset):
         }
 
 
-EXTS = ['jpg', 'jpeg', 'png']
-quicksave_every = 1000
-checkpoint_every = 10000
-train_steps = 120000
-micro_batch_size = 4
-batch_size = 8
-training_image_size = 256
-
-
-save_dir = os.path.expanduser("<OUTPUT DIRECTORY>")
-input_folder = os.path.expanduser(f"<INPUT DIRECTORY>")
-
-
-use_cpu = False
-device = torch.device('cpu') if use_cpu else torch.device('cuda:0')
-
-
-dataset = CustomLabeledDataset(
-    folder=input_folder,
-    image_size=training_image_size
-)
-
-
-# Hacks to add imagen repo to the path
-imagen_path = os.path.expanduser('imagen-pytorch/')
-sys.path.append(imagen_path)
-
 def batch_loader(data, batch_size, shuffle = True):
     from random import shuffle as do_shuffle
     indices = list(range(len(data)))
@@ -91,8 +64,33 @@ def batch_loader(data, batch_size, shuffle = True):
                 'img': images,
             }
 
+###VARIABLES###
+EXTS = ['jpg', 'jpeg', 'png']
+quicksave_every = 1000
+checkpoint_every = 10000
+train_steps = 120000
+micro_batch_size = 4
+batch_size = 8
+training_image_size = 256
+
+###PATHS###
+save_dir = os.path.expanduser("<OUTPUT DIRECTORY>")
+input_folder = os.path.expanduser(f"<INPUT DIRECTORY>")
 
 
+use_cpu = False
+device = torch.device('cpu') if use_cpu else torch.device('cuda:0')
+
+
+dataset = CustomLabeledDataset(
+    folder=input_folder,
+    image_size=training_image_size
+)
+
+
+# Hacks to add imagen repo to the path
+imagen_path = os.path.expanduser('imagen-pytorch/')
+sys.path.append(imagen_path)
 print("Constructing model...")
 # unet for imagen
 
@@ -140,7 +138,10 @@ trainer = ImagenTrainer(imagen)
 print("Loading model...")
 checkpoint_name = "checkpoint_latest.pth"
 # _ = trainer.load(os.path.join("../content/Imagen-pytorch", "imagen-pytorch.pt"), only_model = False)
-#_ = trainer.load(os.path.join(save_dir, checkpoint_name), only_model = False)
+try:
+    _ = trainer.load(os.path.join(save_dir, checkpoint_name), only_model = False)
+except:
+    pass
 
 print(f'Starting from step {int(trainer.step.item())}')
 

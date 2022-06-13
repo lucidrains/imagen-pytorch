@@ -11,6 +11,7 @@ from torch.utils import data
 from PIL import Image
 from imagen_pytorch import Unet, Imagen, ImagenTrainer
 
+### VARIABLES ###
 EXTS = ['jpg', 'jpeg', 'png']
 quicksave_every = 1000
 checkpoint_every = 10000
@@ -20,7 +21,7 @@ batch_size = 8
 training_image_size = 256
 
 
-
+### PATHS ###
 save_dir = os.path.expanduser("<OUTPUT_DIRECTORY>")
 input_folder = os.path.expanduser(f"<INPUT_DIRECTORY>")
 csv_path = os.path.expanduser(f"<FEATURE_CSV>")
@@ -86,22 +87,6 @@ class CustomLabeledDataset(data.Dataset):
         }
 
 
-
-use_cpu = False
-device = torch.device('cpu') if use_cpu else torch.device('cuda:0')
-
-
-dataset = CustomLabeledDataset(
-    folder=input_folder,
-    csv_path=csv_path,
-    image_size=training_image_size
-)
-
-
-# Hacks to add imagen repo to the path
-imagen_path = os.path.expanduser('imagen-pytorch/')
-sys.path.append(imagen_path)
-
 def batch_loader(data, batch_size, shuffle = True):
     from random import shuffle as do_shuffle
     
@@ -130,6 +115,22 @@ def batch_loader(data, batch_size, shuffle = True):
             }
 
 
+
+
+use_cpu = False
+device = torch.device('cpu') if use_cpu else torch.device('cuda:0')
+
+
+dataset = CustomLabeledDataset(
+    folder=input_folder,
+    csv_path=csv_path,
+    image_size=training_image_size
+)
+
+
+# Hacks to add imagen repo to the path
+imagen_path = os.path.expanduser('imagen-pytorch/')
+sys.path.append(imagen_path)
 
 print("Constructing model...")
 # unet for imagen
