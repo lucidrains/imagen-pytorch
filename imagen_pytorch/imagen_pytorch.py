@@ -577,7 +577,8 @@ class ResnetBlock(nn.Module):
         *,
         cond_dim = None,
         time_cond_dim = None,
-        groups = 8
+        groups = 8,
+        linear_attn = False
     ):
         super().__init__()
 
@@ -592,10 +593,12 @@ class ResnetBlock(nn.Module):
         self.cross_attn = None
 
         if exists(cond_dim):
+            attn_klass = CrossAttention if not linear_attn else LinearCrossAttention
+
             self.cross_attn = EinopsToAndFrom(
                 'b c h w',
                 'b (h w) c',
-                CrossAttention(
+                attn_klass(
                     dim = dim_out,
                     context_dim = cond_dim
                 )
@@ -683,6 +686,46 @@ class CrossAttention(nn.Module):
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+class LinearCrossAttention(CrossAttention):
+    def forward(self, x, context, mask = None):
+        b, n, device = *x.shape[:2], x.device
+
+        x = self.norm(x)
+        context = self.norm_context(context)
+
+        q, k, v = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
+
+        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> (b h) n d', h = self.heads)
+
+        # add null key / value for classifier free guidance in prior net
+
+        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> (b h) 1 d', h = self.heads,  b = b)
+
+        k = torch.cat((nk, k), dim = -2)
+        v = torch.cat((nv, v), dim = -2)
+
+        # masking
+
+        max_neg_value = -torch.finfo(x.dtype).max
+
+        if exists(mask):
+            mask = F.pad(mask, (1, 0), value = True)
+            mask = rearrange(mask, 'b n -> b n 1')
+            k = k.masked_fill(~mask, max_neg_value)
+            v = v.masked_fill(~mask, 0.)
+
+        # linear attention
+
+        q = q.softmax(dim = -1)
+        k = k.softmax(dim = -2)
+
+        q = q * self.scale
+
+        context = einsum('b n d, b n e -> b d e', k, v)
+        out = einsum('b n d, b d e -> b n e', q, context)
+        out = rearrange(out, '(b h) n d -> b n (h d)', h = self.heads)
         return self.to_out(out)
 
 class LinearAttention(nn.Module):
@@ -850,6 +893,7 @@ class Unet(nn.Module):
         attend_at_middle = True, # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
         layer_cross_attns = True,
         use_linear_attn = False,
+        use_linear_cross_attn = False,
         cond_on_text = True,
         max_text_len = 256,
         init_dim = None,
@@ -999,12 +1043,14 @@ class Unet(nn.Module):
 
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
             is_last = ind >= (num_resolutions - 1)
-            layer_cond_dim = cond_dim if layer_cross_attn else None
+
+            layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
+            layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
 
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
             self.downs.append(nn.ModuleList([
-                ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
+                ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 downsample_klass(dim_out) if not is_last else nn.Identity()
@@ -1017,11 +1063,13 @@ class Unet(nn.Module):
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[1:]), *reversed_layer_params)):
-            layer_cond_dim = cond_dim if layer_cross_attn else None
+            layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
+            layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
+
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
             self.ups.append(nn.ModuleList([
-                ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, time_cond_dim = time_cond_dim, groups = groups),
+                ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 Upsample(dim_in)
