@@ -78,7 +78,7 @@ images = imagen.sample(texts = [
 images.shape # (3, 3, 256, 256)
 ```
 
-For simpler training, you can directly supply text strings instead of precomputing text encodings. (Although for scaling purposes, you will definitely want to precopmute the textual embeddings + mask)
+For simpler training, you can directly supply text strings instead of precomputing text encodings. (Although for scaling purposes, you will definitely want to precompute the textual embeddings + mask)
 
 The number of textual captions must match the batch size of the images if you go this route.
 
