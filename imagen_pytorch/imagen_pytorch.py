@@ -993,10 +993,10 @@ class Unet(nn.Module):
 
         # for classifier free guidance
 
-        self.null_image_embed = nn.Parameter(torch.randn(1, num_image_tokens, cond_dim))
-
         self.max_text_len = max_text_len
+
         self.null_text_embed = nn.Parameter(torch.randn(1, max_text_len, cond_dim))
+        self.null_text_hidden = nn.Parameter(torch.randn(1, time_cond_dim))
 
         # for non-attention based text conditioning at all points in the network where time is also conditioned
 
@@ -1165,17 +1165,21 @@ class Unet(nn.Module):
         time_tokens = self.to_time_tokens(time_hiddens)
         t = self.to_time_cond(time_hiddens)
 
-        # conditional dropout
-
-        text_keep_mask = prob_mask_like((batch_size,), 1 - cond_drop_prob, device = device)
-
-        text_keep_mask = rearrange(text_keep_mask, 'b -> b 1 1')
-
-        # take care of text encodings (optional)
+        # text conditioning
 
         text_tokens = None
 
         if exists(text_embeds) and self.cond_on_text:
+
+            # conditional dropout
+
+            text_keep_mask = prob_mask_like((batch_size,), 1 - cond_drop_prob, device = device)
+
+            text_keep_mask_embed = rearrange(text_keep_mask, 'b -> b 1 1')
+            text_keep_mask_hidden = rearrange(text_keep_mask, 'b -> b 1')
+
+            # calculate text embeds
+
             text_tokens = self.text_to_cond(text_embeds)
 
             text_tokens = text_tokens[:, :self.max_text_len]
@@ -1191,12 +1195,12 @@ class Unet(nn.Module):
                     text_mask = F.pad(text_mask, (0, remainder), value = False)
 
                 text_mask = rearrange(text_mask, 'b n -> b n 1')
-                text_keep_mask = text_mask & text_keep_mask
+                text_keep_mask_embed = text_mask & text_keep_mask_embed
 
             null_text_embed = self.null_text_embed.to(text_tokens.dtype) # for some reason pytorch AMP not working
 
             text_tokens = torch.where(
-                text_keep_mask,
+                text_keep_mask_embed,
                 text_tokens,
                 null_text_embed
             )
@@ -1205,9 +1209,21 @@ class Unet(nn.Module):
                 text_tokens = self.attn_pool(text_tokens)
 
             # extra non-attention conditioning by projecting and then summing text embeddings to time
+            # termed as text hiddens
 
             mean_pooled_text_tokens = text_tokens.mean(dim = -2)
-            t = t + self.to_text_non_attn_cond(mean_pooled_text_tokens)
+
+            text_hiddens = self.to_text_non_attn_cond(mean_pooled_text_tokens)
+
+            null_text_hidden = self.null_text_hidden.to(t.dtype)
+
+            text_hiddens = torch.where(
+                text_keep_mask_hidden,
+                text_hiddens,
+                null_text_hidden
+            )
+
+            t = t + text_hiddens
 
         # main conditioning tokens (c)
 
