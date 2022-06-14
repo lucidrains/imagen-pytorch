@@ -73,7 +73,7 @@ images = imagen.sample(texts = [
     'a whale breaching from afar',
     'young girl blowing out candles on her birthday cake',
     'fireworks with blue and green sparkles'
-], cond_scale = 2.)
+], cond_scale = 3.)
 
 images.shape # (3, 3, 256, 256)
 ```
@@ -166,7 +166,7 @@ for i in (1, 2):
 images = trainer.sample(texts = [
     'a puppy looking anxiously at a giant donut on the table',
     'the milky way galaxy in the style of monet'
-], cond_scale = 2.)
+], cond_scale = 3.)
 
 images.shape # (2, 3, 256, 256)
 ```
@@ -222,6 +222,20 @@ for u in (1, 2):
 # now you can sample images unconditionally from the cascading unet(s)
 
 images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
+```
+
+## FAQ
+
+- Why are my generated images not aligning well with the text?
+
+Imagen uses an algorithm called <a href="https://openreview.net/forum?id=qw8AKxfYbI">Classifier Free Guidance</a>. When sampling, you apply a scale to the conditioning (text in this case) of greater than `1.0`.
+
+Researcher <a href="https://github.com/Netruk44 ">Netruk44</a> have reported `5-10` to be optimal, but anything greater than `10` to break.
+
+```python
+trainer.sample(texts = [
+    'a cloud in the shape of a roman gladiator'
+], cond_scale = 5.) # <-- cond_scale is the conditioning scale, needs to be greater than 1.0 to be better than average
 ```
 
 ## Shoutouts
