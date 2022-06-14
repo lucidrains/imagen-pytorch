@@ -149,7 +149,12 @@ def linear_beta_schedule(timesteps):
     return torch.linspace(beta_start, beta_end, timesteps, dtype = torch.float64)
 
 class GaussianDiffusion(nn.Module):
-    def __init__(self, *, beta_schedule, timesteps):
+    def __init__(
+        self,
+        *,
+        beta_schedule,
+        timesteps
+    ):
         super().__init__()
 
         if beta_schedule == "cosine":
@@ -222,13 +227,18 @@ class GaussianDiffusion(nn.Module):
         posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def q_sample(self, x_start, t, noise=None):
+    def q_sample(self, x_start, t, noise = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
-        return (
+        noised = (
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start +
             extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
-        ), None
+        )
+
+        alphas_cumprod = extract(self.alphas_cumprod, t, t.shape)
+        log_snr = -log(1. / alphas_cumprod - 1)
+
+        return noised, log_snr
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
@@ -236,7 +246,7 @@ class GaussianDiffusion(nn.Module):
             extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
         )
 
-# gaussian diffusion with continuos time helper functions and classes
+# gaussian diffusion with continuous time helper functions and classes
 # large part of this was thanks to @crowsonkb at https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py
 
 @torch.jit.script
@@ -1616,7 +1626,7 @@ class Imagen(nn.Module):
 
         # get x_t
 
-        x_noisy, maybe_log_snr = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
+        x_noisy, log_snr = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
 
         # also noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
@@ -1641,8 +1651,8 @@ class Imagen(nn.Module):
         losses = self.loss_fn(pred, noise, reduction = 'none')
         losses = reduce(losses, 'b ... -> b', 'mean')
 
-        if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) and self.p2_loss_weight_gamma > 0:
-            loss_weight = (self.p2_loss_weight_k + maybe_log_snr.exp()) ** -self.p2_loss_weight_gamma
+        if self.p2_loss_weight_gamma > 0:
+            loss_weight = (self.p2_loss_weight_k + log_snr.exp()) ** -self.p2_loss_weight_gamma
             losses = losses * loss_weight
 
         return losses.mean()
