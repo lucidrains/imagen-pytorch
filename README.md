@@ -238,6 +238,10 @@ trainer.sample(texts = [
 ], cond_scale = 5.) # <-- cond_scale is the conditioning scale, needs to be greater than 1.0 to be better than average
 ```
 
+- Are there any pretrained models yet?
+
+Not at the moment but one will likely be trained and open sourced within the year, if not sooner. If you would like to participate, you can join the community of artificial neural network trainers at Laion (discord link is in the Readme above) and start collaborating.
+
 ## Shoutouts
 
 - <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
