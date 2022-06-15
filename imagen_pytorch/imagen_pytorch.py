@@ -978,6 +978,11 @@ class Unet(nn.Module):
             Rearrange('b (r d) -> b r d', r = num_time_tokens)
         )
 
+        self.to_lowres_time_tokens = nn.Sequential(
+            nn.Linear(time_cond_dim, cond_dim * num_time_tokens),
+            Rearrange('b (r d) -> b r d', r = num_time_tokens)
+        ) if lowres_cond else None
+
         self.to_time_cond = nn.Sequential(
             nn.Linear(time_cond_dim, time_cond_dim)
         )
@@ -1173,6 +1178,9 @@ class Unet(nn.Module):
         # derive time tokens
 
         time_tokens = self.to_time_tokens(time_hiddens)
+
+        # get time hiddens
+
         t = self.to_time_cond(time_hiddens)
 
         # text conditioning
@@ -1334,6 +1342,7 @@ class Imagen(nn.Module):
         loss_type = 'l2',
         beta_schedules = 'cosine',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
+        per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         continuous_times = True,
@@ -1420,6 +1429,7 @@ class Imagen(nn.Module):
         assert lowres_conditions == (False, *((True,) * (num_unets - 1))), 'the first unet must be unconditioned (by low resolution image), and the rest of the unets must have `lowres_cond` set to True'
 
         self.lowres_sample_noise_level = lowres_sample_noise_level
+        self.per_sample_random_aug_noise_level = per_sample_random_aug_noise_level
 
         # classifier free guidance
 
@@ -1696,7 +1706,12 @@ class Imagen(nn.Module):
         if exists(prev_image_size):
             lowres_cond_img = resize_image_to(images, prev_image_size)
             lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
-            lowres_aug_times = noise_scheduler.sample_random_times(b, device = device)
+
+            if self.per_sample_random_aug_noise_level:
+                lowres_aug_times = noise_scheduler.sample_random_times(b, device = device)
+            else:
+                lowres_aug_time = noise_scheduler.sample_random_times(1, device = device)
+                lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = b)
 
         images = resize_image_to(images, target_image_size)
 
