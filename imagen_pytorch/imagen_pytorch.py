@@ -545,6 +545,15 @@ def Downsample(dim, *, dim_out = None):
     dim_out = default(dim_out, dim)
     return nn.Conv2d(dim, dim_out, 4, 2, 1)
 
+class Scale(nn.Module):
+    """ scaling skip connection by 1 / sqrt(2), purportedly speeds up convergence in a number of papers """
+    def __init__(self, scale):
+        super().__init__()
+        self.scale = scale
+
+    def forward(self, x):
+        return x * self.scale
+
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -589,7 +598,8 @@ class ResnetBlock(nn.Module):
         cond_dim = None,
         time_cond_dim = None,
         groups = 8,
-        linear_attn = False
+        linear_attn = False,
+        skip_connection_scale = 2 ** -0.5
     ):
         super().__init__()
 
@@ -617,7 +627,7 @@ class ResnetBlock(nn.Module):
 
         self.block1 = Block(dim, dim_out, groups = groups)
         self.block2 = Block(dim_out, dim_out, groups = groups)
-        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
+        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else Scale(skip_connection_scale)
 
     def forward(self, x, cond = None, time_emb = None):
 
