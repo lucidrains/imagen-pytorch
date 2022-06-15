@@ -966,10 +966,9 @@ class Unet(nn.Module):
                 nn.LayerNorm(time_cond_dim)
             )
 
-        self.to_lowres_time_hiddens = None
-        if lowres_cond:
-            self.to_lowres_time_hiddens = copy.deepcopy(self.to_time_hiddens)
-            time_cond_dim *= 2
+        self.to_time_cond = nn.Sequential(
+            nn.Linear(time_cond_dim, time_cond_dim)
+        )
 
         # project to time tokens as well as time hiddens
 
@@ -978,9 +977,16 @@ class Unet(nn.Module):
             Rearrange('b (r d) -> b r d', r = num_time_tokens)
         )
 
-        self.to_time_cond = nn.Sequential(
-            nn.Linear(time_cond_dim, time_cond_dim)
-        )
+        # low res aug noise conditioning
+
+        self.lowres_cond = lowres_cond
+
+        if lowres_cond:
+            self.to_lowres_time_hiddens = copy.deepcopy(self.to_time_hiddens)
+            self.to_lowres_time_cond = copy.deepcopy(self.to_time_cond)
+            self.to_lowres_time_tokens = copy.deepcopy(self.to_time_tokens)
+
+        # normalizations
 
         self.norm_cond = nn.LayerNorm(cond_dim)
         self.norm_mid_cond = nn.LayerNorm(cond_dim)
@@ -1164,16 +1170,21 @@ class Unet(nn.Module):
 
         time_hiddens = self.to_time_hiddens(time)
 
-        # add the time conditioning for the noised lowres conditioning, if needed
-
-        if exists(self.to_lowres_time_hiddens):
-            lowres_time_hiddens = self.to_lowres_time_hiddens(lowres_noise_times)
-            time_hiddens = torch.cat((time_hiddens, lowres_time_hiddens), dim = -1)
-
         # derive time tokens
 
         time_tokens = self.to_time_tokens(time_hiddens)
         t = self.to_time_cond(time_hiddens)
+
+        # add lowres time conditioning to time hiddens
+        # and add lowres time tokens along sequence dimension for attention
+
+        if self.lowres_cond:
+            lowres_time_hiddens = self.to_lowres_time_hiddens(lowres_noise_times)
+            lowres_time_tokens = self.to_lowres_time_tokens(lowres_time_hiddens)
+            lowres_t = self.to_lowres_time_cond(lowres_time_hiddens)
+
+            t = t + lowres_t
+            time_tokens = torch.cat((time_tokens, lowres_time_tokens), dim = -2)
 
         # text conditioning
 
