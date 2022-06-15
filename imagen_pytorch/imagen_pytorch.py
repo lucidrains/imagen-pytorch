@@ -929,6 +929,12 @@ class Unet(nn.Module):
         memory_efficient = False
     ):
         super().__init__()
+
+        # guide researchers
+
+        if dim < 128:
+            print('The base dimension of your u-net should ideally be no smaller than 128, as recommended by a professional DDPM trainer https://nonint.com/2022/05/04/friends-dont-let-friends-train-small-diffusion-models/')
+
         # save locals to take care of some hyperparameters for cascading DDPM
 
         self._locals = locals()
