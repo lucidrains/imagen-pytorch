@@ -541,8 +541,9 @@ class Attention(nn.Module):
 def Upsample(dim):
     return nn.ConvTranspose2d(dim, dim, 4, 2, 1)
 
-def Downsample(dim):
-    return nn.Conv2d(dim, dim, 4, 2, 1)
+def Downsample(dim, *, dim_out = None):
+    dim_out = default(dim_out, dim)
+    return nn.Conv2d(dim, dim_out, 4, 2, 1)
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
@@ -1066,10 +1067,10 @@ class Unet(nn.Module):
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
             self.downs.append(nn.ModuleList([
-                ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
+                downsample_klass(dim_in, dim_out = dim_out),
+                ResnetBlock(dim_out, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
-                downsample_klass(dim_out) if not is_last else nn.Identity()
             ]))
 
         mid_dim = dims[-1]
@@ -1078,7 +1079,7 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[1:]), *reversed_layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
 
@@ -1258,16 +1259,15 @@ class Unet(nn.Module):
 
         hiddens = []
 
-        for init_block, resnet_blocks, attn_block, downsample in self.downs:
+        for downsample, init_block, resnet_blocks, attn_block in self.downs:
+            x = downsample(x)
             x = init_block(x, c, t)
 
             for resnet_block in resnet_blocks:
                 x = resnet_block(x)
 
             x = attn_block(x)
-
             hiddens.append(x)
-            x = downsample(x)
 
         x = self.mid_block1(x, c, t)
 
