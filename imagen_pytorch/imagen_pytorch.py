@@ -925,7 +925,8 @@ class Unet(nn.Module):
         cross_embed_downsample_kernel_sizes = (2, 4),
         attn_pool_text = True,
         attn_pool_num_latents = 32,
-        dropout = 0.
+        dropout = 0.,
+        memory_efficient = False
     ):
         super().__init__()
         # save locals to take care of some hyperparameters for cascading DDPM
@@ -1077,10 +1078,11 @@ class Unet(nn.Module):
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
             self.downs.append(nn.ModuleList([
-                downsample_klass(dim_in, dim_out = dim_out),
-                ResnetBlock(dim_out, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
+                downsample_klass(dim_in, dim_out = dim_out) if memory_efficient else None,
+                ResnetBlock(dim_out if memory_efficient else dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
+                downsample_klass(dim_out) if not memory_efficient and not is_last else None,
             ]))
 
         mid_dim = dims[-1]
@@ -1089,7 +1091,9 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
+        up_in_out_slice = slice(1 if not memory_efficient else None, None)
+
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[up_in_out_slice]), *reversed_layer_params)):
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
 
@@ -1269,8 +1273,10 @@ class Unet(nn.Module):
 
         hiddens = []
 
-        for downsample, init_block, resnet_blocks, attn_block in self.downs:
-            x = downsample(x)
+        for pre_downsample, init_block, resnet_blocks, attn_block, post_downsample in self.downs:
+            if exists(pre_downsample):
+                x = pre_downsample(x)
+
             x = init_block(x, c, t)
 
             for resnet_block in resnet_blocks:
@@ -1278,6 +1284,9 @@ class Unet(nn.Module):
 
             x = attn_block(x)
             hiddens.append(x)
+
+            if exists(post_downsample):
+                x = post_downsample(x)
 
         x = self.mid_block1(x, c, t)
 
@@ -1310,6 +1319,7 @@ class BaseUnet64(Unet):
             layer_cross_attns = (False, True, True, True),
             attn_heads = 8,
             ff_mult = 2.,
+            memory_efficient = False
         ))
         super().__init__(*args, **kwargs)
 
@@ -1323,6 +1333,7 @@ class SRUnet256(Unet):
             layer_cross_attns = (False, False, False, True),
             attn_heads = 8,
             ff_mult = 2.,
+            memory_efficient = True
         ))
         super().__init__(*args, **kwargs)
 
@@ -1336,6 +1347,7 @@ class SRUnet1024(Unet):
             layer_cross_attns = (False, False, False, True),
             attn_heads = 8,
             ff_mult = 2.,
+            memory_efficient = True
         ))
         super().__init__(*args, **kwargs)
 
