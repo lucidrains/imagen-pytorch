@@ -1000,9 +1000,24 @@ class Unet(nn.Module):
         self.lowres_cond = lowres_cond
 
         if lowres_cond:
-            self.to_lowres_time_hiddens = copy.deepcopy(self.to_time_hiddens)
-            self.to_lowres_time_cond = copy.deepcopy(self.to_time_cond)
-            self.to_lowres_time_tokens = copy.deepcopy(self.to_time_tokens)
+            self.to_lowres_time_hiddens = nn.Sequential(
+                Rearrange('... -> ... 1'),
+                nn.Linear(1, time_cond_dim),
+                nn.SiLU(),
+                nn.LayerNorm(time_cond_dim),
+                nn.Linear(time_cond_dim, time_cond_dim),
+                nn.SiLU(),
+                nn.LayerNorm(time_cond_dim)
+            )
+
+            self.to_lowres_time_cond = nn.Sequential(
+                nn.Linear(time_cond_dim, time_cond_dim)
+            )
+
+            self.to_lowres_time_tokens = nn.Sequential(
+                nn.Linear(time_cond_dim, cond_dim * num_time_tokens),
+                Rearrange('b (r d) -> b r d', r = num_time_tokens)
+            )
 
         # normalizations
 
@@ -1425,6 +1440,10 @@ class Imagen(nn.Module):
             noise_scheduler = noise_scheduler_klass(beta_schedule = beta_schedule, timesteps = timestep)
             self.noise_schedulers.append(noise_scheduler)
 
+        # lowres augmentation noise schedule
+
+        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(beta_schedule = 'linear', timesteps = 1000)
+
         # ddpm objectives - predicting noise by default
 
         self.pred_objectives = cast_tuple(pred_objectives, num_unets)
@@ -1526,7 +1545,7 @@ class Imagen(nn.Module):
     def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None, pred_objective = 'noise'):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
-        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = noise_scheduler.get_condition(lowres_noise_times)))
+        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)))
 
         if pred_objective == 'noise':
             x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
@@ -1633,10 +1652,10 @@ class Imagen(nn.Module):
                 shape = (batch_size, channel, image_size, image_size)
 
                 if unet.lowres_cond:
-                    lowres_noise_times = noise_scheduler.get_times(batch_size, lowres_sample_noise_level, device = device)
+                    lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
                     lowres_cond_img = resize_image_to(img, image_size)
-                    lowres_cond_img, _ = noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
+                    lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 shape = (batch_size, self.channels, image_size, image_size)
 
@@ -1687,7 +1706,7 @@ class Imagen(nn.Module):
         lowres_cond_img_noisy = None
         if exists(lowres_cond_img):
             lowres_aug_times = default(lowres_aug_times, times)
-            lowres_cond_img_noisy, _ = noise_scheduler.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+            lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
         # get prediction
 
@@ -1765,9 +1784,9 @@ class Imagen(nn.Module):
             lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
 
             if self.per_sample_random_aug_noise_level:
-                lowres_aug_times = noise_scheduler.sample_random_times(b, device = device)
+                lowres_aug_times = self.lowres_noise_schedule.sample_random_times(b, device = device)
             else:
-                lowres_aug_time = noise_scheduler.sample_random_times(1, device = device)
+                lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
                 lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = b)
 
         images = resize_image_to(images, target_image_size)
