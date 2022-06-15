@@ -1333,6 +1333,7 @@ class Imagen(nn.Module):
         cond_drop_prob = 0.1,
         loss_type = 'l2',
         beta_schedules = 'cosine',
+        pred_objectives = 'noise',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
@@ -1384,6 +1385,10 @@ class Imagen(nn.Module):
         for timestep, beta_schedule in zip(timesteps, beta_schedules):
             noise_scheduler = noise_scheduler_klass(beta_schedule = beta_schedule, timesteps = timestep)
             self.noise_schedulers.append(noise_scheduler)
+
+        # ddpm objectives - predicting noise by default
+
+        self.pred_objectives = cast_tuple(pred_objectives, num_unets)
 
         # get text encoder
 
@@ -1479,12 +1484,17 @@ class Imagen(nn.Module):
         for unet, device in zip(self.unets, devices):
             unet.to(device)
 
-    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None):
+    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None, pred_objective = 'noise'):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
         pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = noise_scheduler.get_condition(lowres_noise_times)))
 
-        x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
+        if pred_objective == 'noise':
+            x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
+        elif pred_objective == 'x_start':
+            x_start = pred
+        else:
+            raise ValueError(f'unknown objective {pred_objective}')
 
         # following pseudocode in appendix
         # s is the dynamic threshold, determined by percentile of absolute values of reconstructed sample per batch element
@@ -1502,9 +1512,9 @@ class Imagen(nn.Module):
         return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None):
+    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None, pred_objective = 'noise'):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective)
         noise = torch.randn_like(x)
         # no noise when t == 0
         is_last_sampling_timestep = (t_next == 0) if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) else (t == 0)
@@ -1512,7 +1522,7 @@ class Imagen(nn.Module):
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1):
+    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1, pred_objective = 'noise'):
         device = self.device
 
         batch = shape[0]
@@ -1532,7 +1542,8 @@ class Imagen(nn.Module):
                 cond_scale = cond_scale,
                 lowres_cond_img = lowres_cond_img,
                 lowres_noise_times = lowres_noise_times,
-                noise_scheduler = noise_scheduler
+                noise_scheduler = noise_scheduler,
+                pred_objective = pred_objective
             )
 
         img.clamp_(-1., 1.)
@@ -1574,7 +1585,7 @@ class Imagen(nn.Module):
 
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
 
-        for unet_number, unet, channel, image_size, noise_scheduler in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers)):
+        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives)):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
 
@@ -1598,7 +1609,8 @@ class Imagen(nn.Module):
                     cond_scale = cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
-                    noise_scheduler = noise_scheduler
+                    noise_scheduler = noise_scheduler,
+                    pred_objective = pred_objective
                 )
 
                 outputs.append(img)
@@ -1618,7 +1630,7 @@ class Imagen(nn.Module):
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
-    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, times_next = None):
+    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, times_next = None, pred_objective = 'noise'):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
@@ -1650,8 +1662,21 @@ class Imagen(nn.Module):
             cond_drop_prob = self.cond_drop_prob,
         )
 
-        losses = self.loss_fn(pred, noise, reduction = 'none')
+        # prediction objective
+
+        if pred_objective == 'noise':
+            target = noise
+        elif pred_objective == 'x_start':
+            target = x_start
+        else:
+            raise ValueError(f'unknown objective {pred_objective}')
+
+        # losses
+
+        losses = self.loss_fn(pred, target, reduction = 'none')
         losses = reduce(losses, 'b ... -> b', 'mean')
+
+        # p2 loss reweighting
 
         if self.p2_loss_weight_gamma > 0:
             loss_weight = (self.p2_loss_weight_k + log_snr.exp()) ** -self.p2_loss_weight_gamma
@@ -1674,6 +1699,7 @@ class Imagen(nn.Module):
         unet = self.get_unet(unet_number)
 
         noise_scheduler     = self.noise_schedulers[unet_index]
+        pred_objective      = self.pred_objectives[unet_index]
         target_image_size   = self.image_sizes[unet_index]
         prev_image_size     = self.image_sizes[unet_index - 1] if unet_index > 0 else None
         b, c, h, w, device, = *images.shape, images.device
@@ -1707,4 +1733,4 @@ class Imagen(nn.Module):
 
         images = resize_image_to(images, target_image_size)
 
-        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times)
+        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective)
