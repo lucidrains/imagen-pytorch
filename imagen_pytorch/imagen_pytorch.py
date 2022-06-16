@@ -1507,10 +1507,10 @@ class Imagen(nn.Module):
 
         # p2 loss weight
 
-        assert p2_loss_weight_gamma <= 2, 'in paper, they noticed any gamma greater than 2 is harmful'
-
-        self.p2_loss_weight_gamma = p2_loss_weight_gamma
         self.p2_loss_weight_k = p2_loss_weight_k
+        self.p2_loss_weight_gamma = cast_tuple(p2_loss_weight_gamma, num_unets)
+
+        assert all([(gamma_value <= 2) for gamma_value in self.p2_loss_weight_gamma]), 'in paper, they noticed any gamma greater than 2 is harmful'
 
         # one temp parameter for keeping track of device
 
@@ -1693,7 +1693,7 @@ class Imagen(nn.Module):
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
-    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, times_next = None, pred_objective = 'noise'):
+    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, noise = None, times_next = None, pred_objective = 'noise', p2_loss_weight_gamma = 0.):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
@@ -1741,8 +1741,8 @@ class Imagen(nn.Module):
 
         # p2 loss reweighting
 
-        if self.p2_loss_weight_gamma > 0:
-            loss_weight = (self.p2_loss_weight_k + log_snr.exp()) ** -self.p2_loss_weight_gamma
+        if p2_loss_weight_gamma > 0:
+            loss_weight = (self.p2_loss_weight_k + log_snr.exp()) ** -p2_loss_weight_gamma
             losses = losses * loss_weight
 
         return losses.mean()
@@ -1761,11 +1761,12 @@ class Imagen(nn.Module):
         
         unet = self.get_unet(unet_number)
 
-        noise_scheduler     = self.noise_schedulers[unet_index]
-        pred_objective      = self.pred_objectives[unet_index]
-        target_image_size   = self.image_sizes[unet_index]
-        prev_image_size     = self.image_sizes[unet_index - 1] if unet_index > 0 else None
-        b, c, h, w, device, = *images.shape, images.device
+        noise_scheduler      = self.noise_schedulers[unet_index]
+        p2_loss_weight_gamma = self.p2_loss_weight_gamma[unet_index]
+        pred_objective       = self.pred_objectives[unet_index]
+        target_image_size    = self.image_sizes[unet_index]
+        prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
+        b, c, h, w, device,  = *images.shape, images.device
 
         check_shape(images, 'b c h w', c = self.channels)
         assert h >= target_image_size and w >= target_image_size
@@ -1796,4 +1797,4 @@ class Imagen(nn.Module):
 
         images = resize_image_to(images, target_image_size)
 
-        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective)
+        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma)
