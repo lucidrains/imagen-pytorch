@@ -1429,7 +1429,9 @@ class Imagen(nn.Module):
         # determine noise schedules per unet
 
         timesteps = cast_tuple(timesteps, num_unets)
-        beta_schedules = cast_tuple(beta_schedules, num_unets)
+
+        beta_schedules = cast_tuple(beta_schedules)
+        beta_schedules = pad_tuple_to_length(beta_schedules, num_unets, 'linear') # make sure noise schedule defaults to 'cosine' and then 'linear' for rest of super-resoluting unets
 
         noise_scheduler_klass = GaussianDiffusion if not continuous_times else GaussianDiffusionContinuousTimes
         self.noise_schedulers = nn.ModuleList([])
