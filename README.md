@@ -252,6 +252,8 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 - <a href="https://github.com/crowsonkb">Katherine Crowson</a>, for her <a href="https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py">beautiful code</a>, which helped me understand the continuous time version of gaussian diffusion
 
+- <a href="https://github.com/marunine">Marunine</a> and <a href="https://github.com/Netruk44">Netruk44</a>, for reviewing code, sharing experimental results, and help with debugging
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 
