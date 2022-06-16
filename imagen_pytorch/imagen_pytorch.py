@@ -1120,6 +1120,8 @@ class Unet(nn.Module):
 
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
+            # todo: fix the ordering of the upsampling block in memory inefficient version
+
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
@@ -1127,8 +1129,10 @@ class Unet(nn.Module):
                 Upsample(dim_in)
             ]))
 
+        final_conv_dim = dim * (2 if not memory_efficient else 1)
+
         self.final_conv = nn.Sequential(
-            ResnetBlock(dim, dim, groups = resnet_groups[0]),
+            ResnetBlock(final_conv_dim, dim, groups = resnet_groups[0]),
             nn.Conv2d(dim, self.channels_out, 1)
         )
 
@@ -1317,7 +1321,7 @@ class Unet(nn.Module):
         x = self.mid_block2(x, c, t)
 
         for init_block, resnet_blocks, attn_block, upsample in self.ups:
-            x = torch.cat((x, hiddens.pop()), dim=1)
+            x = torch.cat((x, hiddens.pop()), dim = 1)
             x = init_block(x, c, t)
 
             for resnet_block in resnet_blocks:
@@ -1325,6 +1329,10 @@ class Unet(nn.Module):
 
             x = attn_block(x)
             x = upsample(x)
+
+        if len(hiddens) > 0:
+            # todo - refactor memory inefficient version of unet not to have this ugliness
+            x = torch.cat((x, hiddens.pop()), dim = 1)
 
         return self.final_conv(x)
 
