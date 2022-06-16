@@ -961,7 +961,8 @@ class Unet(nn.Module):
         dropout = 0.,
         memory_efficient = False,
         init_conv_to_final_conv_residual = False,
-        use_global_context_attn = True
+        use_global_context_attn = True,
+        scale_resnet_skip_connection = True
     ):
         super().__init__()
 
@@ -1116,6 +1117,10 @@ class Unet(nn.Module):
         if cross_embed_downsample:
             downsample_klass = partial(CrossEmbedLayer, kernel_sizes = cross_embed_downsample_kernel_sizes)
 
+        # scale for resnet skip connections
+
+        skip_connect_scale = 1. if not scale_resnet_skip_connection else (2 ** -0.5)
+
         # layers
 
         self.downs = nn.ModuleList([])
@@ -1135,8 +1140,8 @@ class Unet(nn.Module):
 
             self.downs.append(nn.ModuleList([
                 downsample_klass(dim_in, dim_out = dim_out) if memory_efficient else None,
-                ResnetBlock(dim_out if memory_efficient else dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
-                nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
+                ResnetBlock(dim_out if memory_efficient else dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups, skip_connection_scale = skip_connect_scale),
+                nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups, use_gca = use_global_context_attn, skip_connection_scale = skip_connect_scale) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 downsample_klass(dim_out) if not memory_efficient and not is_last else None,
             ]))
@@ -1154,8 +1159,8 @@ class Unet(nn.Module):
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
             self.ups.append(nn.ModuleList([
-                ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
-                nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
+                ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups, skip_connection_scale = skip_connect_scale),
+                nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups, skip_connection_scale = skip_connect_scale, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 Upsample(dim_in) if not is_last or memory_efficient else nn.Identity()
             ]))
