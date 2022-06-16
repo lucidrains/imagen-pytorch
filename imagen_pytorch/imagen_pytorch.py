@@ -926,7 +926,8 @@ class Unet(nn.Module):
         attn_pool_text = True,
         attn_pool_num_latents = 32,
         dropout = 0.,
-        memory_efficient = False
+        memory_efficient = False,
+        init_conv_to_final_conv_residual = False
     ):
         super().__init__()
 
@@ -1125,8 +1126,15 @@ class Unet(nn.Module):
                 Upsample(dim_in) if not is_last or memory_efficient else nn.Identity()
             ]))
 
+        # whether to do a final residual from initial conv to the final resnet block out
+
+        self.init_conv_to_final_conv_residual = init_conv_to_final_conv_residual
+        final_conv_dim = dim * (2 if init_conv_to_final_conv_residual else 1)
+
+        # final convolution
+
         self.final_conv = nn.Sequential(
-            ResnetBlock(dim, dim, groups = resnet_groups[0]),
+            ResnetBlock(final_conv_dim, dim, groups = resnet_groups[0], skip_connection_scale = 1.), # todo - remove this given the last upsampling block is accounted for? also set skip connection residual to 1 for final resnet block
             nn.Conv2d(dim, self.channels_out, 1)
         )
 
@@ -1199,6 +1207,11 @@ class Unet(nn.Module):
         # initial convolution
 
         x = self.init_conv(x)
+
+        # init conv residual
+
+        if self.init_conv_to_final_conv_residual:
+            init_conv_residual = x.clone()
 
         # time conditioning
 
@@ -1323,6 +1336,11 @@ class Unet(nn.Module):
 
             x = attn_block(x)
             x = upsample(x)
+
+        # final top-most residual if needed
+
+        if self.init_conv_to_final_conv_residual:
+            x = torch.cat((x, init_conv_residual), dim = 1)
 
         return self.final_conv(x)
 
