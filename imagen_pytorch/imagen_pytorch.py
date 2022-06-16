@@ -1112,27 +1112,21 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
-        up_in_out_slice = slice(1 if not memory_efficient else None, None)
-
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out[up_in_out_slice]), *reversed_layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
+            is_last = ind == (len(in_out) - 1)
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
-
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
-
-            # todo: fix the ordering of the upsampling block in memory inefficient version
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
-                Upsample(dim_in)
+                Upsample(dim_in) if not is_last or memory_efficient else nn.Identity()
             ]))
 
-        final_conv_dim = dim * (2 if not memory_efficient else 1)
-
         self.final_conv = nn.Sequential(
-            ResnetBlock(final_conv_dim, dim, groups = resnet_groups[0]),
+            ResnetBlock(dim, dim, groups = resnet_groups[0]),
             nn.Conv2d(dim, self.channels_out, 1)
         )
 
@@ -1329,10 +1323,6 @@ class Unet(nn.Module):
 
             x = attn_block(x)
             x = upsample(x)
-
-        if len(hiddens) > 0:
-            # todo - refactor memory inefficient version of unet not to have this ugliness
-            x = torch.cat((x, hiddens.pop()), dim = 1)
 
         return self.final_conv(x)
 
