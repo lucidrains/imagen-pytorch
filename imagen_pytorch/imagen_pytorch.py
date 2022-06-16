@@ -152,14 +152,14 @@ class GaussianDiffusion(nn.Module):
     def __init__(
         self,
         *,
-        beta_schedule,
+        noise_schedule,
         timesteps
     ):
         super().__init__()
 
-        if beta_schedule == "cosine":
+        if noise_schedule == "cosine":
             betas = cosine_beta_schedule(timesteps)
-        elif beta_schedule == "linear":
+        elif noise_schedule == "linear":
             betas = linear_beta_schedule(timesteps)
         else:
             raise NotImplementedError()
@@ -261,14 +261,14 @@ def log_snr_to_alpha_sigma(log_snr):
     return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
 
 class GaussianDiffusionContinuousTimes(nn.Module):
-    def __init__(self, *, beta_schedule, timesteps):
+    def __init__(self, *, noise_schedule, timesteps):
         super().__init__()
-        if beta_schedule == 'linear':
+        if noise_schedule == 'linear':
             self.log_snr = beta_linear_log_snr
-        elif beta_schedule == "cosine":
+        elif noise_schedule == "cosine":
             self.log_snr = alpha_cosine_log_snr
         else:
-            raise ValueError(f'invalid noise schedule {beta_schedule}')
+            raise ValueError(f'invalid noise schedule {noise_schedule}')
 
         self.num_timesteps = timesteps
 
@@ -1384,7 +1384,7 @@ class Imagen(nn.Module):
         timesteps = 1000,
         cond_drop_prob = 0.1,
         loss_type = 'l2',
-        beta_schedules = 'cosine',
+        noise_schedules = 'cosine',
         pred_objectives = 'noise',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
@@ -1430,19 +1430,24 @@ class Imagen(nn.Module):
 
         timesteps = cast_tuple(timesteps, num_unets)
 
-        beta_schedules = cast_tuple(beta_schedules)
-        beta_schedules = pad_tuple_to_length(beta_schedules, num_unets, 'linear') # make sure noise schedule defaults to 'cosine' and then 'linear' for rest of super-resoluting unets
+        # make sure noise schedule defaults to 'cosine', 'cosine', and then 'linear' for rest of super-resoluting unets
+
+        noise_schedules = cast_tuple(noise_schedules)
+        noise_schedules = pad_tuple_to_length(noise_schedules, 2, 'cosine')
+        noise_schedules = pad_tuple_to_length(noise_schedules, num_unets, 'linear')
+
+        # construct noise schedulers
 
         noise_scheduler_klass = GaussianDiffusion if not continuous_times else GaussianDiffusionContinuousTimes
         self.noise_schedulers = nn.ModuleList([])
 
-        for timestep, beta_schedule in zip(timesteps, beta_schedules):
-            noise_scheduler = noise_scheduler_klass(beta_schedule = beta_schedule, timesteps = timestep)
+        for timestep, noise_schedule in zip(timesteps, noise_schedules):
+            noise_scheduler = noise_scheduler_klass(noise_schedule = noise_schedule, timesteps = timestep)
             self.noise_schedulers.append(noise_scheduler)
 
         # lowres augmentation noise schedule
 
-        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(beta_schedule = 'linear', timesteps = 1000)
+        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(noise_schedule = 'linear', timesteps = 1000)
 
         # ddpm objectives - predicting noise by default
 

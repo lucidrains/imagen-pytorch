@@ -49,7 +49,6 @@ unet2 = Unet(
 imagen = Imagen(
     unets = (unet1, unet2),
     image_sizes = (64, 256),
-    beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
     cond_drop_prob = 0.1
 ).cuda()
@@ -132,7 +131,6 @@ imagen = Imagen(
     unets = (unet1, unet2),
     text_encoder_name = 't5-large',
     image_sizes = (64, 256),
-    beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
     cond_drop_prob = 0.1
 ).cuda()
@@ -202,7 +200,6 @@ imagen = Imagen(
     condition_on_text = False,   # this must be set to False for unconditional Imagen
     unets = (unet1, unet2),
     image_sizes = (64, 128),
-    beta_schedules = ('cosine', 'linear'),
     timesteps = 1000
 )
 
