@@ -49,7 +49,6 @@ unet2 = Unet(
 imagen = Imagen(
     unets = (unet1, unet2),
     image_sizes = (64, 256),
-    beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
     cond_drop_prob = 0.1
 ).cuda()
@@ -78,7 +77,7 @@ images = imagen.sample(texts = [
 images.shape # (3, 3, 256, 256)
 ```
 
-For simpler training, you can directly supply text strings instead of precomputing text encodings. (Although for scaling purposes, you will definitely want to precopmute the textual embeddings + mask)
+For simpler training, you can directly supply text strings instead of precomputing text encodings. (Although for scaling purposes, you will definitely want to precompute the textual embeddings + mask)
 
 The number of textual captions must match the batch size of the images if you go this route.
 
@@ -132,7 +131,6 @@ imagen = Imagen(
     unets = (unet1, unet2),
     text_encoder_name = 't5-large',
     image_sizes = (64, 256),
-    beta_schedules = ('cosine', 'linear'),
     timesteps = 1000,
     cond_drop_prob = 0.1
 ).cuda()
@@ -202,7 +200,6 @@ imagen = Imagen(
     condition_on_text = False,   # this must be set to False for unconditional Imagen
     unets = (unet1, unet2),
     image_sizes = (64, 128),
-    beta_schedules = ('cosine', 'linear'),
     timesteps = 1000
 )
 
@@ -238,6 +235,10 @@ trainer.sample(texts = [
 ], cond_scale = 5.) # <-- cond_scale is the conditioning scale, needs to be greater than 1.0 to be better than average
 ```
 
+- Are there any pretrained models yet?
+
+Not at the moment but one will likely be trained and open sourced within the year, if not sooner. If you would like to participate, you can join the community of artificial neural network trainers at Laion (discord link is in the Readme above) and start collaborating.
+
 ## Shoutouts
 
 - <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
@@ -247,6 +248,8 @@ trainer.sample(texts = [
 - <a href="https://github.com/jorgemcgomes">Jorge Gomes</a> for helping out with the T5 loading code and advice on the correct T5 version
 
 - <a href="https://github.com/crowsonkb">Katherine Crowson</a>, for her <a href="https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py">beautiful code</a>, which helped me understand the continuous time version of gaussian diffusion
+
+- <a href="https://github.com/marunine">Marunine</a> and <a href="https://github.com/Netruk44">Netruk44</a>, for reviewing code, sharing experimental results, and help with debugging
 
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
@@ -275,7 +278,7 @@ trainer.sample(texts = [
 - [x] add p2 loss weighting for continuous time
 - [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
-- [ ] explore skip layer excitation in unet decoder
+- [x] explore skip layer excitation in unet decoder
 - [ ] take care of huggingface accelerate integration
 - [ ] build out CLI tool for training, resuming training, and one-line generation of image
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper
@@ -323,5 +326,16 @@ trainer.sample(texts = [
     journal = {ArXiv},
     year    = {2021},
     volume  = {abs/2109.08668}
+}
+```
+
+```bibtex
+@misc{cao2020global,
+    title   = {Global Context Networks},
+    author  = {Yue Cao and Jiarui Xu and Stephen Lin and Fangyun Wei and Han Hu},
+    year    = {2020},
+    eprint  = {2012.13375},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
 }
 ```
