@@ -328,3 +328,14 @@ Not at the moment but one will likely be trained and open sourced within the yea
     volume  = {abs/2109.08668}
 }
 ```
+
+```bibtex
+@misc{cao2020global,
+    title   = {Global Context Networks},
+    author  = {Yue Cao and Jiarui Xu and Stephen Lin and Fangyun Wei and Han Hu},
+    year    = {2020},
+    eprint  = {2012.13375},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```
