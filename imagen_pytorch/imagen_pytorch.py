@@ -599,7 +599,8 @@ class ResnetBlock(nn.Module):
         time_cond_dim = None,
         groups = 8,
         linear_attn = False,
-        skip_connection_scale = 2 ** -0.5
+        skip_connection_scale = 2 ** -0.5,
+        use_gca = False
     ):
         super().__init__()
 
@@ -627,7 +628,10 @@ class ResnetBlock(nn.Module):
 
         self.block1 = Block(dim, dim_out, groups = groups)
         self.block2 = Block(dim_out, dim_out, groups = groups)
+        self.gca = GlobalContext(dim_in = dim_out, dim_out = dim_out) if use_gca else nn.Identity()
+
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else Scale(skip_connection_scale)
+
 
     def forward(self, x, cond = None, time_emb = None):
 
@@ -644,6 +648,8 @@ class ResnetBlock(nn.Module):
             h = self.cross_attn(h, context = cond) + h
 
         h = self.block2(h, scale_shift = scale_shift)
+
+        h = self.gca(h)
 
         return h + self.res_conv(x)
 
@@ -807,6 +813,33 @@ class LinearAttention(nn.Module):
         out = self.nonlin(out)
         return self.to_out(out)
 
+class GlobalContext(nn.Module):
+    """ basically a superior form of squeeze-excitation that is attention-esque """
+
+    def __init__(
+        self,
+        *,
+        dim_in,
+        dim_out
+    ):
+        super().__init__()
+        self.to_k = nn.Conv2d(dim_in, 1, 1)
+        hidden_dim = max(3, dim_out // 2)
+
+        self.net = nn.Sequential(
+            nn.Conv2d(dim_in, hidden_dim, 1),
+            nn.SiLU(),
+            nn.Conv2d(hidden_dim, dim_out, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        context = self.to_k(x)
+        x, context = rearrange_many((x, context), 'b n ... -> b n (...)')
+        out = einsum('b i n, b c n -> b c i', context.softmax(dim = -1), x)
+        out = rearrange(out, '... -> ... 1')
+        return self.net(out)
+
 def FeedForward(dim, mult = 2):
     hidden_dim = int(dim * mult)
     return nn.Sequential(
@@ -927,7 +960,8 @@ class Unet(nn.Module):
         attn_pool_num_latents = 32,
         dropout = 0.,
         memory_efficient = False,
-        init_conv_to_final_conv_residual = False
+        init_conv_to_final_conv_residual = False,
+        use_global_context_attn = True
     ):
         super().__init__()
 
@@ -1102,7 +1136,7 @@ class Unet(nn.Module):
             self.downs.append(nn.ModuleList([
                 downsample_klass(dim_in, dim_out = dim_out) if memory_efficient else None,
                 ResnetBlock(dim_out if memory_efficient else dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
-                nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups) for _ in range(layer_num_resnet_blocks)]),
+                nn.ModuleList([ResnetBlock(dim_out, dim_out, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 downsample_klass(dim_out) if not memory_efficient and not is_last else None,
             ]))
@@ -1121,7 +1155,7 @@ class Unet(nn.Module):
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
-                nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups) for _ in range(layer_num_resnet_blocks)]),
+                nn.ModuleList([ResnetBlock(dim_in, dim_in, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 Upsample(dim_in) if not is_last or memory_efficient else nn.Identity()
             ]))
