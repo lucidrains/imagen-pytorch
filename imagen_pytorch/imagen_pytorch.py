@@ -344,6 +344,12 @@ class ChanLayerNorm(nn.Module):
         mean = torch.mean(x, dim = 1, keepdim = True)
         return (x - mean) / (var + self.eps).sqrt() * self.g
 
+class Always():
+    def __init__(self, val):
+        self.val = val
+
+    def __call__(self, *args, **kwargs):
+        return self.val
 
 class Residual(nn.Module):
     def __init__(self, fn):
@@ -566,6 +572,23 @@ class SinusoidalPosEmb(nn.Module):
         emb = rearrange(x, 'i -> i 1') * rearrange(emb, 'j -> 1 j')
         return torch.cat((emb.sin(), emb.cos()), dim = -1)
 
+class LearnedSinusoidalPosEmb(nn.Module):
+    """ following @crowsonkb 's lead with learned sinusoidal pos emb """
+    """ https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/models/danbooru_128.py#L8 """
+
+    def __init__(self, dim):
+        super().__init__()
+        assert (dim % 2) == 0
+        half_dim = dim // 2
+        self.weights = nn.Parameter(torch.randn(half_dim))
+
+    def forward(self, x):
+        x = rearrange(x, 'b -> b 1')
+        freqs = x * rearrange(self.weights, 'd -> 1 d') * 2 * math.pi
+        fouriered = torch.cat((freqs.sin(), freqs.cos()), dim = -1)
+        fouriered = torch.cat((x, fouriered), dim = -1)
+        return fouriered
+
 class Block(nn.Module):
     def __init__(
         self,
@@ -600,7 +623,8 @@ class ResnetBlock(nn.Module):
         groups = 8,
         linear_attn = False,
         skip_connection_scale = 2 ** -0.5,
-        use_gca = False
+        use_gca = False,
+        squeeze_excite = False
     ):
         super().__init__()
 
@@ -628,7 +652,8 @@ class ResnetBlock(nn.Module):
 
         self.block1 = Block(dim, dim_out, groups = groups)
         self.block2 = Block(dim_out, dim_out, groups = groups)
-        self.gca = GlobalContext(dim_in = dim_out, dim_out = dim_out) if use_gca else nn.Identity()
+
+        self.gca = GlobalContext(dim_in = dim_out, dim_out = dim_out) if use_gca else Always(1)
 
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else Scale(skip_connection_scale)
 
@@ -934,7 +959,8 @@ class Unet(nn.Module):
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
-        fourier_embed_time_or_noise = True,
+        learned_sinu_pos_emb = True,
+        learned_sinu_pos_emb_dim = 16,
         out_dim = None,
         dim_mults=(1, 2, 4, 8),
         channels = 3,
@@ -997,28 +1023,24 @@ class Unet(nn.Module):
         # time, image embeddings, and optional text encoding
 
         cond_dim = default(cond_dim, dim)
-        time_cond_dim = dim * 4
+        time_cond_dim = dim * 4 * (2 if lowres_cond else 1)
 
         # embedding time for discrete gaussian diffusion or log(snr) noise for continuous version
 
-        self.fourier_embed_time_or_noise = fourier_embed_time_or_noise
+        self.learned_sinu_pos_emb = learned_sinu_pos_emb
 
-        if fourier_embed_time_or_noise:
-            self.to_time_hiddens = nn.Sequential(
-                SinusoidalPosEmb(dim),
-                nn.Linear(dim, time_cond_dim),
-                nn.SiLU()
-            )
+        if learned_sinu_pos_emb:
+            sinu_pos_emb = LearnedSinusoidalPosEmb(learned_sinu_pos_emb_dim)
+            sinu_pos_emb_input_dim = learned_sinu_pos_emb_dim + 1
         else:
-            self.to_time_hiddens = nn.Sequential(
-                Rearrange('... -> ... 1'),
-                nn.Linear(1, time_cond_dim),
-                nn.SiLU(),
-                nn.LayerNorm(time_cond_dim),
-                nn.Linear(time_cond_dim, time_cond_dim),
-                nn.SiLU(),
-                nn.LayerNorm(time_cond_dim)
-            )
+            sinu_pos_emb = SinusoidalPosEmb(dim)
+            sinu_pos_emb_input_dim = dim
+
+        self.to_time_hiddens = nn.Sequential(
+            sinu_pos_emb,
+            nn.Linear(sinu_pos_emb_input_dim, time_cond_dim),
+            nn.SiLU()
+        )
 
         self.to_time_cond = nn.Sequential(
             nn.Linear(time_cond_dim, time_cond_dim)
@@ -1037,13 +1059,9 @@ class Unet(nn.Module):
 
         if lowres_cond:
             self.to_lowres_time_hiddens = nn.Sequential(
-                Rearrange('... -> ... 1'),
-                nn.Linear(1, time_cond_dim),
-                nn.SiLU(),
-                nn.LayerNorm(time_cond_dim),
-                nn.Linear(time_cond_dim, time_cond_dim),
-                nn.SiLU(),
-                nn.LayerNorm(time_cond_dim)
+                LearnedSinusoidalPosEmb(learned_sinu_pos_emb_dim),
+                nn.Linear(learned_sinu_pos_emb_dim + 1, time_cond_dim),
+                nn.SiLU()
             )
 
             self.to_lowres_time_cond = nn.Sequential(
@@ -1172,10 +1190,8 @@ class Unet(nn.Module):
 
         # final convolution
 
-        self.final_conv = nn.Sequential(
-            ResnetBlock(final_conv_dim, dim, groups = resnet_groups[0], skip_connection_scale = 1.), # todo - remove this given the last upsampling block is accounted for? also set skip connection residual to 1 for final resnet block
-            nn.Conv2d(dim, self.channels_out, 1)
-        )
+        self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1.)
+        self.final_conv = nn.Conv2d(dim, self.channels_out, 1)
 
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
@@ -1187,13 +1203,13 @@ class Unet(nn.Module):
         channels,
         channels_out,
         cond_on_text,
-        fourier_embed_time_or_noise
+        learned_sinu_pos_emb
     ):
         if lowres_cond == self.lowres_cond and \
             channels == self.channels and \
             cond_on_text == self.cond_on_text and \
             text_embed_dim == self._locals['text_embed_dim'] and \
-            fourier_embed_time_or_noise == self.fourier_embed_time_or_noise and \
+            learned_sinu_pos_emb == self.learned_sinu_pos_emb and \
             channels_out == self.channels_out:
             return self
 
@@ -1203,7 +1219,7 @@ class Unet(nn.Module):
             channels = channels,
             channels_out = channels_out,
             cond_on_text = cond_on_text,
-            fourier_embed_time_or_noise = fourier_embed_time_or_noise
+            learned_sinu_pos_emb = learned_sinu_pos_emb
         )
 
         return self.__class__(**{**self._locals, **updated_kwargs})
@@ -1381,6 +1397,7 @@ class Unet(nn.Module):
         if self.init_conv_to_final_conv_residual:
             x = torch.cat((x, init_conv_residual), dim = 1)
 
+        x = self.final_res_block(x, t)
         return self.final_conv(x)
 
 # predefined unets, with configs lining up with hyperparameters in appendix of paper
@@ -1529,7 +1546,7 @@ class Imagen(nn.Module):
                 text_embed_dim = self.text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
                 channels_out = self.channels,
-                fourier_embed_time_or_noise = not continuous_times
+                learned_sinu_pos_emb = not continuous_times
             )
 
             self.unets.append(one_unet)
