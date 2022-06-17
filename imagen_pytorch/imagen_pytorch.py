@@ -1190,7 +1190,7 @@ class Unet(nn.Module):
 
         # final convolution
 
-        self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1.)
+        self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1., use_gca = True)
         self.final_conv = nn.Conv2d(dim, self.channels_out, 1)
 
     # if the current settings for the unet are not correct
