@@ -344,6 +344,12 @@ class ChanLayerNorm(nn.Module):
         mean = torch.mean(x, dim = 1, keepdim = True)
         return (x - mean) / (var + self.eps).sqrt() * self.g
 
+class Always():
+    def __init__(self, val):
+        self.val = val
+
+    def __call__(self, *args, **kwargs):
+        return self.val
 
 class Residual(nn.Module):
     def __init__(self, fn):
@@ -617,7 +623,8 @@ class ResnetBlock(nn.Module):
         groups = 8,
         linear_attn = False,
         skip_connection_scale = 2 ** -0.5,
-        use_gca = False
+        use_gca = False,
+        squeeze_excite = False
     ):
         super().__init__()
 
@@ -645,7 +652,8 @@ class ResnetBlock(nn.Module):
 
         self.block1 = Block(dim, dim_out, groups = groups)
         self.block2 = Block(dim_out, dim_out, groups = groups)
-        self.gca = GlobalContext(dim_in = dim_out, dim_out = dim_out) if use_gca else nn.Identity()
+
+        self.gca = GlobalContext(dim_in = dim_out, dim_out = dim_out) if use_gca else Always(1)
 
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else Scale(skip_connection_scale)
 
@@ -1015,7 +1023,7 @@ class Unet(nn.Module):
         # time, image embeddings, and optional text encoding
 
         cond_dim = default(cond_dim, dim)
-        time_cond_dim = dim * 4
+        time_cond_dim = dim * 4 * (2 if lowres_cond else 1)
 
         # embedding time for discrete gaussian diffusion or log(snr) noise for continuous version
 
@@ -1182,10 +1190,8 @@ class Unet(nn.Module):
 
         # final convolution
 
-        self.final_conv = nn.Sequential(
-            ResnetBlock(final_conv_dim, dim, groups = resnet_groups[0], skip_connection_scale = 1.), # todo - remove this given the last upsampling block is accounted for? also set skip connection residual to 1 for final resnet block
-            nn.Conv2d(dim, self.channels_out, 1)
-        )
+        self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1.)
+        self.final_conv = nn.Conv2d(dim, self.channels_out, 1)
 
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
@@ -1391,6 +1397,7 @@ class Unet(nn.Module):
         if self.init_conv_to_final_conv_residual:
             x = torch.cat((x, init_conv_residual), dim = 1)
 
+        x = self.final_res_block(x, t)
         return self.final_conv(x)
 
 # predefined unets, with configs lining up with hyperparameters in appendix of paper
