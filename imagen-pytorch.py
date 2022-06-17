@@ -265,15 +265,15 @@ def initialize_files():
         'checkpoint_name':args.model+"_latest.pth"
     }
     config['FilePaths'] = {
-        'save_dir':"\""+args.model+"_checkpoints\"",
-        'input_folder':"\""+args.model+"_images\"",
-        'output_folder':"\""+args.model+"_samples\"",
+        'save_dir':args.model+"_checkpoints",
+        'input_folder':args.model+"_images",
+        'output_folder':args.model+"_samples",
     }
     if args.icond:
         config['Default']['conditional']="True"
         config['FilePaths']['csv_path']="\""+args.model+".csv\""
         config['Unet1'] = {
-            'dim':32,
+            'dim':128,
             'cond_dim':512,
             'dim_mults':'1, 2, 4, 8',
             'num_resnet_blocks':3,
@@ -282,7 +282,7 @@ def initialize_files():
             'layer_cross_attns':'False, True, True, True'
         }
         config['Unet2'] = {
-            'dim':32,
+            'dim':128,
             'cond_dim':512,
             'dim_mults':'1, 2, 4, 8',
             'num_resnet_blocks':'2, 4, 8, 8',
@@ -293,22 +293,22 @@ def initialize_files():
     else:
         config['Default']['conditional']="False"
         config['Unet1'] = {
-            'dim':32,
+            'dim':128,
             'cond_dim':512,
             'dim_mults':'1, 2, 4',
             'num_resnet_blocks':3,
             'use_linear_attn':False,
-            'layer_attns':'False, True, True, True',
-            'layer_cross_attns':'False, True, True, True'
+            'layer_attns':'False, True, True',
+            'layer_cross_attns':'False, True, True'
         }
         config['Unet2'] = {
-            'dim':32,
+            'dim':128,
             'cond_dim':512,
             'dim_mults':'1, 2, 4',
             'num_resnet_blocks':'2, 4, 8',
             'use_linear_attn':False,
-            'layer_attns':'False, False, False, True',
-            'layer_cross_attns':'False, False, False, True'
+            'layer_attns':'False, False, True',
+            'layer_cross_attns':'False, False, True'
         }
 
     with open(args.model+'.config', 'w') as configfile:
