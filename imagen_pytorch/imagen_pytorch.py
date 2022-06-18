@@ -1467,6 +1467,7 @@ class Imagen(nn.Module):
         continuous_times = True,
         p2_loss_weight_gamma = 0.5,                 # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time
         p2_loss_weight_k = 1,
+        dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
     ):
         super().__init__()
@@ -1577,6 +1578,7 @@ class Imagen(nn.Module):
 
         # dynamic thresholding
 
+        self.dynamic_thresholding = cast_tuple(dynamic_thresholding, num_unets)
         self.dynamic_thresholding_percentile = dynamic_thresholding_percentile
 
         # p2 loss weight
@@ -1621,7 +1623,7 @@ class Imagen(nn.Module):
         for unet, device in zip(self.unets, devices):
             unet.to(device)
 
-    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None, pred_objective = 'noise'):
+    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None, pred_objective = 'noise', dynamic_threshold = True):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
         pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)))
@@ -1633,25 +1635,27 @@ class Imagen(nn.Module):
         else:
             raise ValueError(f'unknown objective {pred_objective}')
 
-        # following pseudocode in appendix
-        # s is the dynamic threshold, determined by percentile of absolute values of reconstructed sample per batch element
+        if dynamic_threshold:
+            # following pseudocode in appendix
+            # s is the dynamic threshold, determined by percentile of absolute values of reconstructed sample per batch element
+            s = torch.quantile(
+                rearrange(x_start, 'b ... -> b (...)').abs(),
+                self.dynamic_thresholding_percentile,
+                dim = -1
+            )
 
-        s = torch.quantile(
-            rearrange(x_start, 'b ... -> b (...)').abs(),
-            self.dynamic_thresholding_percentile,
-            dim = -1
-        )
-
-        s.clamp_(min = 1.)
-        s = right_pad_dims_to(x_start, s)
-        x_start = x_start.clamp(-s, s) / s
+            s.clamp_(min = 1.)
+            s = right_pad_dims_to(x_start, s)
+            x_start = x_start.clamp(-s, s) / s
+        else:
+            x_start.clamp_(-1., 1.)
 
         return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None, pred_objective = 'noise'):
+    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None, pred_objective = 'noise', dynamic_threshold = True):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective)
+        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
         noise = torch.randn_like(x)
         # no noise when t == 0
         is_last_sampling_timestep = (t_next == 0) if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) else (t == 0)
@@ -1659,7 +1663,7 @@ class Imagen(nn.Module):
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1, pred_objective = 'noise'):
+    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_scale = 1, pred_objective = 'noise', dynamic_threshold = True):
         device = self.device
 
         batch = shape[0]
@@ -1680,7 +1684,8 @@ class Imagen(nn.Module):
                 lowres_cond_img = lowres_cond_img,
                 lowres_noise_times = lowres_noise_times,
                 noise_scheduler = noise_scheduler,
-                pred_objective = pred_objective
+                pred_objective = pred_objective,
+                dynamic_threshold = dynamic_threshold
             )
 
         img.clamp_(-1., 1.)
@@ -1722,7 +1727,7 @@ class Imagen(nn.Module):
 
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
 
-        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives)):
+        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding)):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
 
@@ -1747,7 +1752,8 @@ class Imagen(nn.Module):
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
                     noise_scheduler = noise_scheduler,
-                    pred_objective = pred_objective
+                    pred_objective = pred_objective,
+                    dynamic_threshold = dynamic_threshold
                 )
 
                 outputs.append(img)
