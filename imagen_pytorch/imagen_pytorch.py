@@ -989,6 +989,7 @@ class Unet(nn.Module):
         init_conv_to_final_conv_residual = False,
         use_global_context_attn = True,
         scale_resnet_skip_connection = True,
+        final_resnet_block = True,
         final_conv_kernel_size = 3
     ):
         super().__init__()
@@ -1189,10 +1190,12 @@ class Unet(nn.Module):
         self.init_conv_to_final_conv_residual = init_conv_to_final_conv_residual
         final_conv_dim = dim * (2 if init_conv_to_final_conv_residual else 1)
 
-        # final convolution
+        # final optional resnet block and convolution out
 
-        self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1., use_gca = True)
-        self.final_conv = nn.Conv2d(dim, self.channels_out, final_conv_kernel_size, padding = final_conv_kernel_size // 2)
+        self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1., use_gca = True) if final_resnet_block else None
+
+        final_conv_dim_in = dim if final_resnet_block else final_conv_dim
+        self.final_conv = nn.Conv2d(final_conv_dim_in, self.channels_out, final_conv_kernel_size, padding = final_conv_kernel_size // 2)
 
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
@@ -1398,7 +1401,9 @@ class Unet(nn.Module):
         if self.init_conv_to_final_conv_residual:
             x = torch.cat((x, init_conv_residual), dim = 1)
 
-        x = self.final_res_block(x, t)
+        if exists(self.final_res_block):
+            x = self.final_res_block(x, t)
+
         return self.final_conv(x)
 
 # predefined unets, with configs lining up with hyperparameters in appendix of paper
