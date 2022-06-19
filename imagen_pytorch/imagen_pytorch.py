@@ -988,7 +988,8 @@ class Unet(nn.Module):
         memory_efficient = False,
         init_conv_to_final_conv_residual = False,
         use_global_context_attn = True,
-        scale_resnet_skip_connection = True
+        scale_resnet_skip_connection = True,
+        final_conv_kernel_size = 3
     ):
         super().__init__()
 
@@ -1191,7 +1192,7 @@ class Unet(nn.Module):
         # final convolution
 
         self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], skip_connection_scale = 1., use_gca = True)
-        self.final_conv = nn.Conv2d(dim, self.channels_out, 1)
+        self.final_conv = nn.Conv2d(dim, self.channels_out, final_conv_kernel_size, padding = final_conv_kernel_size // 2)
 
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
