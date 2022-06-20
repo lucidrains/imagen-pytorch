@@ -172,6 +172,8 @@ class ImagenTrainer(nn.Module):
         use_ema = True,
         lr = 1e-4,
         eps = 1e-8,
+        beta1 = 0.9,
+        beta2 = 0.99,
         max_grad_norm = None,
         amp = False,
         group_wd_params = True,
@@ -207,6 +209,7 @@ class ImagenTrainer(nn.Module):
                 unet.parameters(),
                 lr = unet_lr,
                 eps = unet_eps,
+                betas = (beta1, beta2),
                 **kwargs
             )
 
