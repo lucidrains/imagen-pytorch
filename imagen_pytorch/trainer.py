@@ -186,6 +186,7 @@ class ImagenTrainer(nn.Module):
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
         accelerate_kwargs, kwargs = groupby_prefix_and_trim('accelerate_', kwargs)
 
+        assert not accelerate, 'not ready yet'
         self.accelerate = Accelerator(**accelerate_kwargs) if accelerate else None
 
         self.imagen = imagen
