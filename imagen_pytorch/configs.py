@@ -52,7 +52,8 @@ class ImagenConfig(AllowExtraBaseModel):
     channels: int = 3
     loss_type: str = 'l2'
     learned_variance: bool = True
-    cond_drop_prob: float = 0.5
+    cond_drop_prob: float = 0.5,
+    accelerate: bool = False
 
     @validator('image_sizes')
     def check_image_sizes(cls, image_sizes, values):
