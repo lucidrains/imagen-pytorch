@@ -224,7 +224,7 @@ class ImagenTrainer(nn.Module):
             scheduler = warmup_scheduler = None
 
             if exists(unet_cosine_decay_max_steps):
-                scheduler = CosineAnnealingLR(optimizer, T_max = unet_warmup_steps)
+                scheduler = CosineAnnealingLR(optimizer, T_max = unet_cosine_decay_max_steps)
 
             if exists(unet_warmup_steps):
                 warmup.LinearWarmup(optimizer, warmup_period = unet_warmup_steps)
