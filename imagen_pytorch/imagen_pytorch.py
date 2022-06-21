@@ -997,6 +997,8 @@ class Unet(nn.Module):
 
         # guide researchers
 
+        assert attn_heads > 1, 'you need to have more than 1 attention head, ideally at least 4 or 8'
+
         if dim < 128:
             print('The base dimension of your u-net should ideally be no smaller than 128, as recommended by a professional DDPM trainer https://nonint.com/2022/05/04/friends-dont-let-friends-train-small-diffusion-models/')
 
