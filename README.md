@@ -280,6 +280,7 @@ Not at the moment but one will likely be trained and open sourced within the yea
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [x] explore skip layer excitation in unet decoder
 - [ ] take care of huggingface accelerate integration
+- [ ] consider pytorch lightning trainer
 - [ ] preencoding of text to memmapped embeddings
 - [ ] build out CLI tool for training, resuming training, and one-line generation of image
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
