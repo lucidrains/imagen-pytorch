@@ -1091,7 +1091,6 @@ class Unet(nn.Module):
         # normalizations
 
         self.norm_cond = nn.LayerNorm(cond_dim)
-        self.norm_mid_cond = nn.LayerNorm(cond_dim)
 
         # text encoding conditioning (optional)
 
