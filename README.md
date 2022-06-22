@@ -251,6 +251,8 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 - <a href="https://github.com/marunine">Marunine</a> and <a href="https://github.com/Netruk44">Netruk44</a>, for reviewing code, sharing experimental results, and help with debugging
 
+- <a href="https://github.com/marunine">Marunine</a> for providing a <a href="https://github.com/lucidrains/imagen-pytorch/issues/72#issuecomment-1163275757">potential solution</a> for a color shifting issue in the memory efficient u-nets
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 
