@@ -1425,7 +1425,7 @@ class Unet(nn.Module):
             x = torch.cat((x, init_conv_residual), dim = 1)
 
         if exists(self.final_res_block):
-            x = self.final_res_block(x, t)
+            x = self.final_res_block(x, None, t)
 
         return self.final_conv(x)
 
