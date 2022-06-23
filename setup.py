@@ -26,7 +26,6 @@ setup(
     'denoising-diffusion'
   ],
   install_requires=[
-    'accelerate',
     'click',
     'einops>=0.4',
     'einops-exts',
@@ -35,6 +34,7 @@ setup(
     'packaging',
     'pillow',
     'pydantic',
+    'pytorch-lightning',
     'pytorch-warmup',
     'resize-right',
     'sentencepiece',

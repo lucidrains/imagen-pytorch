@@ -22,8 +22,6 @@ import numpy as np
 
 from ema_pytorch import EMA
 
-from accelerate import Accelerator
-
 # helper functions
 
 def exists(val):
@@ -179,17 +177,12 @@ class ImagenTrainer(nn.Module):
         group_wd_params = True,
         warmup_steps = None,
         cosine_decay_max_steps = None,
-        accelerate = False,
         **kwargs
     ):
         super().__init__()
 
         assert isinstance(imagen, Imagen)
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
-        accelerate_kwargs, kwargs = groupby_prefix_and_trim('accelerate_', kwargs)
-
-        assert not accelerate, 'not ready yet'
-        self.accelerate = Accelerator(**accelerate_kwargs) if accelerate else None
 
         self.imagen = imagen
         self.num_unets = len(self.imagen.unets)
