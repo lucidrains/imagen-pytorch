@@ -285,6 +285,7 @@ Not at the moment but one will likely be trained and open sourced within the yea
 - [ ] preencoding of text to memmapped embeddings
 - [ ] build out CLI tool for training, resuming training, and one-line generation of image
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
+- [ ] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
 
 ## Citations
 
