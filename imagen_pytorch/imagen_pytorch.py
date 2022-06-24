@@ -991,7 +991,8 @@ class Unet(nn.Module):
         use_global_context_attn = True,
         scale_resnet_skip_connection = True,
         final_resnet_block = True,
-        final_conv_kernel_size = 3
+        final_conv_kernel_size = 3,
+        downsample_concat_hiddens_earlier = False    # for debugging artifacts in memory efficient unet (allows for one to concat the hiddens a bit earlier, right after the downsample)
     ):
         super().__init__()
 
@@ -1153,6 +1154,10 @@ class Unet(nn.Module):
 
         skip_connect_scale = 1. if not scale_resnet_skip_connection else (2 ** -0.5)
 
+        # for debugging purposes
+
+        self.downsample_concat_hiddens_earlier = downsample_concat_hiddens_earlier
+
         # layers
 
         self.downs = nn.ModuleList([])
@@ -1171,8 +1176,8 @@ class Unet(nn.Module):
             transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
 
             self.downs.append(nn.ModuleList([
-                downsample_klass(dim_in, dim_out = dim_out) if memory_efficient else None,
-                ResnetBlock(dim_out if memory_efficient else dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups, skip_connection_scale = skip_connect_scale),
+                downsample_klass(dim_in) if memory_efficient else None,
+                ResnetBlock(dim_in, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups, skip_connection_scale = skip_connect_scale),
                 nn.ModuleList([ResnetBlock(dim_out, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn, skip_connection_scale = skip_connect_scale) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
                 downsample_klass(dim_out) if not memory_efficient and not is_last else None,
@@ -1392,11 +1397,16 @@ class Unet(nn.Module):
 
             x = init_block(x, t, c)
 
+            if self.downsample_concat_hiddens_earlier:
+                hiddens.append(x)
+
             for resnet_block in resnet_blocks:
                 x = resnet_block(x, t)
 
             x = attn_block(x)
-            hiddens.append(x)
+
+            if not self.downsample_concat_hiddens_earlier:
+                hiddens.append(x)
 
             if exists(post_downsample):
                 x = post_downsample(x)
