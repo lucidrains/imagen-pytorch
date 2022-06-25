@@ -547,6 +547,12 @@ class Attention(nn.Module):
 def Upsample(dim):
     return nn.ConvTranspose2d(dim, dim, 4, 2, 1)
 
+def BilinearUpsample(dim):
+    return nn.Sequential(
+        nn.Upsample(scale_factor = 2),
+        nn.Conv2d(dim, dim, 3, padding = 1)
+    )
+
 def Downsample(dim, *, dim_out = None):
     dim_out = default(dim_out, dim)
     return nn.Conv2d(dim, dim_out, 4, 2, 1)
@@ -992,6 +998,7 @@ class Unet(nn.Module):
         scale_resnet_skip_connection = True,
         final_resnet_block = True,
         final_conv_kernel_size = 3,
+        bilinear_upsample = False,                   # for debugging checkboard artifacts
         downsample_concat_hiddens_earlier = False    # for debugging artifacts in memory efficient unet (allows for one to concat the hiddens a bit earlier, right after the downsample)
     ):
         super().__init__()
@@ -1167,6 +1174,8 @@ class Unet(nn.Module):
         layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_cross_attns]
         reversed_layer_params = list(map(reversed, layer_params))
 
+        # downsampling layers
+
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
             is_last = ind >= (num_resolutions - 1)
 
@@ -1183,11 +1192,19 @@ class Unet(nn.Module):
                 downsample_klass(dim_out) if not memory_efficient and not is_last else None,
             ]))
 
+        # middle layers
+
         mid_dim = dims[-1]
 
         self.mid_block1 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
+
+        # upsampling klass
+
+        upsample_klass = BilinearUpsample if bilinear_upsample else Upsample
+
+        # upsampling layers
 
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
             is_last = ind == (len(in_out) - 1)
@@ -1199,7 +1216,7 @@ class Unet(nn.Module):
                 ResnetBlock(dim_out * 2, dim_in, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups, skip_connection_scale = skip_connect_scale),
                 nn.ModuleList([ResnetBlock(dim_in, dim_in, time_cond_dim = time_cond_dim, groups = groups, skip_connection_scale = skip_connect_scale, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_in, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
-                Upsample(dim_in) if not is_last or memory_efficient else nn.Identity()
+                upsample_klass(dim_in) if not is_last or memory_efficient else nn.Identity()
             ]))
 
         # whether to do a final residual from initial conv to the final resnet block out
