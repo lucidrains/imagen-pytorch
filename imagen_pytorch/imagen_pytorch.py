@@ -1442,7 +1442,7 @@ class Unet(nn.Module):
 
 class BaseUnet64(Unet):
     def __init__(self, *args, **kwargs):
-        kwargs.update(dict(
+        default_kwargs = dict(
             dim = 512,
             dim_mults = (1, 2, 3, 4),
             num_resnet_blocks = 3,
@@ -1451,12 +1451,12 @@ class BaseUnet64(Unet):
             attn_heads = 8,
             ff_mult = 2.,
             memory_efficient = False
-        ))
-        super().__init__(*args, **kwargs)
+        )
+        super().__init__(*args, **{**default_kwargs, **kwargs})
 
 class SRUnet256(Unet):
     def __init__(self, *args, **kwargs):
-        kwargs.update(dict(
+        default_kwargs = dict(
             dim = 128,
             dim_mults = (1, 2, 4, 8),
             num_resnet_blocks = (2, 4, 8, 8),
@@ -1465,12 +1465,12 @@ class SRUnet256(Unet):
             attn_heads = 8,
             ff_mult = 2.,
             memory_efficient = True
-        ))
-        super().__init__(*args, **kwargs)
+        )
+        super().__init__(*args, **{**default_kwargs, **kwargs})
 
 class SRUnet1024(Unet):
     def __init__(self, *args, **kwargs):
-        kwargs.update(dict(
+        default_kwargs = dict(
             dim = 128,
             dim_mults = (1, 2, 4, 8),
             num_resnet_blocks = (2, 4, 8, 8),
@@ -1479,8 +1479,8 @@ class SRUnet1024(Unet):
             attn_heads = 8,
             ff_mult = 2.,
             memory_efficient = True
-        ))
-        super().__init__(*args, **kwargs)
+        )
+        super().__init__(*args, **{**default_kwargs, **kwargs})
 
 # main imagen ddpm class, which is a cascading DDPM from Ho et al.
 
