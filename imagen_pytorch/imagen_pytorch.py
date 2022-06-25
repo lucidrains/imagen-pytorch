@@ -19,6 +19,7 @@ from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
 
 from resize_right import resize
+from kornia.filters import filter2d
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
@@ -553,9 +554,23 @@ def BilinearUpsample(dim):
         nn.Conv2d(dim, dim, 3, padding = 1)
     )
 
-def Downsample(dim, *, dim_out = None):
+class Blur(nn.Module):
+    def __init__(self):
+        super().__init__()
+        f = torch.Tensor([1, 2, 1])
+        self.register_buffer('f', f)
+
+    def forward(self, x):
+        f = rearrange(self.f, 'd -> 1 1 d') * rearrange(self.f, 'd -> 1 d 1')
+        return filter2d(x, f, normalized = True)
+
+def Downsample(dim, *, dim_out = None, antialias = False):
     dim_out = default(dim_out, dim)
-    return nn.Conv2d(dim, dim_out, 4, 2, 1)
+
+    return nn.Sequential(
+        nn.Conv2d(dim, dim_out, 4, 2, 1),
+        Blur() if antialias else nn.Identity()
+    )
 
 class Scale(nn.Module):
     """ scaling skip connection by 1 / sqrt(2), purportedly speeds up convergence in a number of papers """
@@ -933,7 +948,8 @@ class CrossEmbedLayer(nn.Module):
         dim_in,
         kernel_sizes,
         dim_out = None,
-        stride = 2
+        stride = 2,
+        antialias = False
     ):
         super().__init__()
         assert all([*map(lambda t: (t % 2) == (stride % 2), kernel_sizes)])
@@ -950,9 +966,13 @@ class CrossEmbedLayer(nn.Module):
         for kernel, dim_scale in zip(kernel_sizes, dim_scales):
             self.convs.append(nn.Conv2d(dim_in, dim_scale, kernel, stride = stride, padding = (kernel - stride) // 2))
 
+        self.blur = Blur() if antialias else nn.Identity()
+
     def forward(self, x):
         fmaps = tuple(map(lambda conv: conv(x), self.convs))
-        return torch.cat(fmaps, dim = 1)
+        fmaps = torch.cat(fmaps, dim = 1)
+        fmaps = self.blur(fmaps)
+        return fmaps
 
 class Unet(nn.Module):
     def __init__(
@@ -999,6 +1019,7 @@ class Unet(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         bilinear_upsample = False,                   # for debugging checkboard artifacts
+        antialias_downsample = False,                # for debugging checkboard artifacts
         downsample_concat_hiddens_earlier = False    # for debugging artifacts in memory efficient unet (allows for one to concat the hiddens a bit earlier, right after the downsample)
     ):
         super().__init__()
@@ -1154,8 +1175,12 @@ class Unet(nn.Module):
         # downsample klass
 
         downsample_klass = Downsample
+
         if cross_embed_downsample:
             downsample_klass = partial(CrossEmbedLayer, kernel_sizes = cross_embed_downsample_kernel_sizes)
+
+        if antialias_downsample:
+            downsample_klass = partial(downsample_klass, antialias = True)
 
         # scale for resnet skip connections
 
