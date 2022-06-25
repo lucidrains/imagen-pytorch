@@ -550,7 +550,7 @@ def Upsample(dim):
 
 def BilinearUpsample(dim):
     return nn.Sequential(
-        nn.Upsample(scale_factor = 2),
+        nn.Upsample(scale_factor = 2, mode = 'bilinear'),
         nn.Conv2d(dim, dim, 3, padding = 1)
     )
 
