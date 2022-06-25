@@ -564,13 +564,17 @@ class Blur(nn.Module):
         f = rearrange(self.f, 'd -> 1 1 d') * rearrange(self.f, 'd -> 1 d 1')
         return filter2d(x, f, normalized = True)
 
-def Downsample(dim, *, dim_out = None, antialias = False):
+def DownsampleWithBlur(dim, *, dim_out = None):
     dim_out = default(dim_out, dim)
 
     return nn.Sequential(
-        Blur() if antialias else nn.Identity(),
+        Blur(),
         nn.Conv2d(dim, dim_out, 4, 2, 1)
     )
+
+def Downsample(dim, *, dim_out = None):
+    dim_out = default(dim_out, dim)
+    return nn.Conv2d(dim, dim_out, 4, 2, 1)
 
 class Scale(nn.Module):
     """ scaling skip connection by 1 / sqrt(2), purportedly speeds up convergence in a number of papers """
@@ -948,8 +952,7 @@ class CrossEmbedLayer(nn.Module):
         dim_in,
         kernel_sizes,
         dim_out = None,
-        stride = 2,
-        antialias = False
+        stride = 2
     ):
         super().__init__()
         assert all([*map(lambda t: (t % 2) == (stride % 2), kernel_sizes)])
@@ -966,10 +969,7 @@ class CrossEmbedLayer(nn.Module):
         for kernel, dim_scale in zip(kernel_sizes, dim_scales):
             self.convs.append(nn.Conv2d(dim_in, dim_scale, kernel, stride = stride, padding = (kernel - stride) // 2))
 
-        self.blur = Blur() if antialias else nn.Identity()
-
     def forward(self, x):
-        x = self.blur(x)
         fmaps = tuple(map(lambda conv: conv(x), self.convs))
         return torch.cat(fmaps, dim = 1)
 
@@ -1173,13 +1173,10 @@ class Unet(nn.Module):
 
         # downsample klass
 
-        downsample_klass = Downsample
+        downsample_klass = DownsampleWithBlur if antialias_downsample else Downsample
 
         if cross_embed_downsample:
             downsample_klass = partial(CrossEmbedLayer, kernel_sizes = cross_embed_downsample_kernel_sizes)
-
-        if antialias_downsample:
-            downsample_klass = partial(downsample_klass, antialias = True)
 
         # scale for resnet skip connections
 
