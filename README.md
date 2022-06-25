@@ -186,13 +186,7 @@ unet1 = Unet(
     use_linear_attn = True
 )
 
-unet2 = SRUnet256(
-    dim = 32,
-    dim_mults = (1, 2, 4),
-    num_resnet_blocks = (2, 4, 8),
-    layer_attns = (False, False, True),
-    layer_cross_attns = (False, False, True)
-)
+unet2 = SRUnet256()
 
 # imagen, which contains the unets above (base unet and super resoluting ones)
 
