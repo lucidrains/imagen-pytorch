@@ -44,11 +44,16 @@ def default(val, d):
         return val
     return d() if callable(d) else d
 
-def cast_tuple(val, length = 1):
+def cast_tuple(val, length = None):
     if isinstance(val, list):
         val = tuple(val)
 
-    return val if isinstance(val, tuple) else ((val,) * length)
+    output = val if isinstance(val, tuple) else ((val,) * default(length, 1))
+
+    if exists(length):
+        assert len(output) == length
+
+    return output
 
 def module_device(module):
     return next(module.parameters()).device
@@ -1623,8 +1628,9 @@ class Imagen(nn.Module):
 
         # unet image sizes
 
-        assert num_unets == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
         self.image_sizes = cast_tuple(image_sizes)
+        assert num_unets == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
+
         self.sample_channels = cast_tuple(self.channels, num_unets)
 
         # cascading ddpm related stuff
