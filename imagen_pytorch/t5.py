@@ -37,7 +37,7 @@ def get_model_and_tokenizer(name):
 
     return T5_CONFIGS[name]['model'], T5_CONFIGS[name]['tokenizer']
 
-def get_encoded_dim(name):
+def get_encoded_dim(name: str) -> int:
     if name not in T5_CONFIGS:
         # avoids loading the model if we only want to get the dim
         config = T5Config.from_pretrained(name)

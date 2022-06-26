@@ -1,6 +1,7 @@
+from __future__ import annotations
 import math
 import copy
-from typing import List
+from typing import List, Any, Tuple, Union, Callable
 from tqdm import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager
@@ -23,32 +24,53 @@ from kornia.filters import filter2d
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
+from .type_vars import T as _T, U as _U
+from .container_types import _TupleOrListOrSingle
+from .imagen_literal_types import _LossType, _NoiseSchedule, _PredObjective
+
 # helper functions
 
-def exists(val):
+def exists(val: Any) -> bool:
     return val is not None
 
-def identity(t, *args, **kwargs):
+def identity(t: _T, *args, **kwargs) -> _T:
     return t
 
-def maybe(fn):
+def maybe(fn: Callable[[_T], _U]) -> Callable[[Union[_T, None]], _U]:
     @wraps(fn)
-    def inner(x):
+    def inner(x: Union[_T, None]) -> _U:
         if not exists(x):
             return x
         return fn(x)
     return inner
 
-def default(val, d):
+def default(val: Union[_T, None], d: _T) -> _T:
     if exists(val):
         return val
     return d() if callable(d) else d
 
-def cast_tuple(val, length = 1):
+def cast_tuple(val: _TupleOrListOrSingle[_T], length = 1, enforce_length = True) -> Tuple[_T, ...]:
+    """
+    Args:
+        val (Tuple[T] | List[T] | T):
+            the value to coerce into a Tuple[T]
+        length (int, optional):
+            the length to which a Tuple made from a single T will be padded. Default: ``1``
+        enforce_length (bool, optional):
+            for Tuple[T] or List[T] inputs, whether to assert that the received container
+            has length matching the length parameter. Default: ``True``
+    """
     if isinstance(val, list):
-        val = tuple(val)
-
-    return val if isinstance(val, tuple) else ((val,) * length)
+        if enforce_length:
+            list_len = len(val)
+            assert length == len(val), f'List[T] has length {list_len}, but expected length {length}'
+        return tuple(val)
+    if isinstance(val, tuple):
+        if enforce_length:
+            tuple_len = len(val)
+            assert length == len(val), f'Tuple[T] has length {tuple_len}, but expected length {length}'
+        return val
+    return (val,) * length
 
 def module_device(module):
     return next(module.parameters()).device
@@ -66,7 +88,7 @@ def eval_decorator(fn):
         return out
     return inner
 
-def pad_tuple_to_length(t, length, fillvalue = None):
+def pad_tuple_to_length(t: Tuple[_T, ...], length: int, fillvalue: Union[_T, None] = None) -> Tuple[_T, ...]:
     remain_length = length - len(t)
     if remain_length <= 0:
         return t
@@ -1253,7 +1275,7 @@ class Unet(nn.Module):
         channels_out,
         cond_on_text,
         learned_sinu_pos_emb
-    ):
+    ) -> Unet:
         if lowres_cond == self.lowres_cond and \
             channels == self.channels and \
             cond_on_text == self.cond_on_text and \
@@ -1516,27 +1538,42 @@ class SRUnet1024(Unet):
 # main imagen ddpm class, which is a cascading DDPM from Ho et al.
 
 class Imagen(nn.Module):
+    unets: nn.ModuleList
+    image_sizes: Tuple[int, ...]
+    sample_channels: Tuple[int, ...]
+    text_encoder_name: str
+    text_embed_dim: int
+    channels: _TupleOrListOrSingle[int]
+    cond_drop_prob: float
+    loss_type: _LossType
+    condition_on_text: bool
+    lowres_sample_noise_level: float
+    per_sample_random_aug_noise_level: bool
+    p2_loss_weight_k: int
+    dynamic_thresholding: Tuple[bool, ...]
+    dynamic_thresholding_percentile: float
+    p2_loss_weight_gamma: Tuple[float, ...]
     def __init__(
         self,
-        unets,
+        unets: _TupleOrListOrSingle[Unet],
         *,
-        image_sizes,                                # for cascading ddpm, image size at each stage
+        image_sizes: _TupleOrListOrSingle[int],     # for cascading ddpm, image size at each stage
         text_encoder_name = DEFAULT_T5_NAME,
-        text_embed_dim = None,
-        channels = 3,
-        timesteps = 1000,
+        text_embed_dim: Union[int, None] = None,
+        channels: _TupleOrListOrSingle[int] = 3,
+        timesteps: _TupleOrListOrSingle[int] = 1000,
         cond_drop_prob = 0.1,
-        loss_type = 'l2',
-        noise_schedules = 'cosine',
-        pred_objectives = 'noise',
+        loss_type: _LossType = 'l2',
+        noise_schedules: _TupleOrListOrSingle[_NoiseSchedule] = 'cosine',
+        pred_objectives: _TupleOrListOrSingle[_PredObjective] = 'noise',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         continuous_times = True,
-        p2_loss_weight_gamma = 0.5,                 # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time
+        p2_loss_weight_gamma: _TupleOrListOrSingle[float] = 0.5, # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time
         p2_loss_weight_k = 1,
-        dynamic_thresholding = True,
+        dynamic_thresholding: _TupleOrListOrSingle[bool] = True,
         dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
     ):
         super().__init__()
@@ -1567,16 +1604,16 @@ class Imagen(nn.Module):
         # automatically take care of ensuring that first unet is unconditional
         # while the rest of the unets are conditioned on the low resolution image produced by previous unet
 
-        unets = cast_tuple(unets)
-        num_unets = len(unets)
+        unets: Tuple[Unet, ...] = cast_tuple(unets, enforce_length = False)
+        num_unets: int = len(unets)
 
         # determine noise schedules per unet
 
-        timesteps = cast_tuple(timesteps, num_unets)
+        timesteps: Tuple[int, ...] = cast_tuple(timesteps, num_unets)
 
         # make sure noise schedule defaults to 'cosine', 'cosine', and then 'linear' for rest of super-resoluting unets
 
-        noise_schedules = cast_tuple(noise_schedules)
+        noise_schedules: Tuple[_NoiseSchedule, ...] = cast_tuple(noise_schedules, enforce_length = False)
         noise_schedules = pad_tuple_to_length(noise_schedules, 2, 'cosine')
         noise_schedules = pad_tuple_to_length(noise_schedules, num_unets, 'linear')
 
@@ -1623,8 +1660,7 @@ class Imagen(nn.Module):
 
         # unet image sizes
 
-        assert num_unets == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
-        self.image_sizes = cast_tuple(image_sizes)
+        self.image_sizes = cast_tuple(image_sizes, num_unets)
         self.sample_channels = cast_tuple(self.channels, num_unets)
 
         # cascading ddpm related stuff
