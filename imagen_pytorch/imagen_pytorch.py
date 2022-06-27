@@ -107,6 +107,12 @@ def resize_image_to(image, target_image_size):
     if orig_image_size == target_image_size:
         return image
 
+    if orig_image_size < target_image_size:
+        # for fixing a checkboard artifact issue - @marunine
+        # https://github.com/lucidrains/imagen-pytorch/issues/72#issuecomment-1166773227
+        # todo - make sure resize right downsampling is fine as well
+        return F.interpolate(image, target_image_size, mode = 'bilinear')
+
     scale_factors = target_image_size / orig_image_size
     return resize(image, scale_factors = scale_factors)
 

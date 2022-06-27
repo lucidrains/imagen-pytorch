@@ -253,6 +253,8 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 - <a href="https://github.com/marunine">Marunine</a> for providing a <a href="https://github.com/lucidrains/imagen-pytorch/issues/72#issuecomment-1163275757">potential solution</a> for a color shifting issue in the memory efficient u-nets. Thanks to <a href="https://github.com/jacobwjs">Jacob</a> for sharing experimental comparisons between the base and memory-efficient unets
 
+- <a href="https://github.com/marunine">Marunine</a> yet again for fixing a checkboard artifact issue
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 
