@@ -1635,7 +1635,7 @@ class Imagen(nn.Module):
                 text_embed_dim = self.text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
                 channels_out = self.channels,
-                learned_sinu_pos_emb = not continuous_times
+                learned_sinu_pos_emb = continuous_times
             )
 
             self.unets.append(one_unet)
