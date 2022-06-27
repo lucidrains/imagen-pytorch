@@ -559,9 +559,9 @@ class Attention(nn.Module):
 def Upsample(dim):
     return nn.ConvTranspose2d(dim, dim, 4, 2, 1)
 
-def BilinearUpsample(dim):
+def InterpolateUpsample(dim, *, mode = 'nearest'):
     return nn.Sequential(
-        nn.Upsample(scale_factor = 2, mode = 'bilinear'),
+        nn.Upsample(scale_factor = 2, mode = mode),
         nn.Conv2d(dim, dim, 3, padding = 1)
     )
 
@@ -1019,6 +1019,7 @@ class Unet(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         bilinear_upsample = False,                   # for debugging checkboard artifacts
+        nearest_neighbor_upsample = False,
         antialias_downsample = False,                # for debugging checkboard artifacts
         downsample_concat_hiddens_earlier = False    # for debugging artifacts in memory efficient unet (allows for one to concat the hiddens a bit earlier, right after the downsample)
     ):
@@ -1224,7 +1225,14 @@ class Unet(nn.Module):
 
         # upsampling klass
 
-        upsample_klass = BilinearUpsample if bilinear_upsample else Upsample
+        assert not (nearest_neighbor_upsample and bilinear_upsample)
+
+        if bilinear_upsample:
+            upsample_klass = partial(InterpolateUpsample, mode = 'bilinear')
+        elif nearest_neighbor_upsample:
+            upsample_klass = partial(InterpolateUpsample, mode = 'nearest')
+        else:
+            upsample_klass = Upsample
 
         # upsampling layers
 
