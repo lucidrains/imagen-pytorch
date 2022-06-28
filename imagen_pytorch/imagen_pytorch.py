@@ -1187,12 +1187,18 @@ class Unet(nn.Module):
 
             skip_connect_dims.append(current_dim)
 
+            # whether to do post-downsample, for non-memory efficient unet
+
+            post_downsample = None
+            if not memory_efficient:
+                post_downsample = downsample_klass(current_dim, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
+
             self.downs.append(nn.ModuleList([
                 pre_downsample,
                 ResnetBlock(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(current_dim, current_dim, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = current_dim, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
-                downsample_klass(current_dim, dim_out) if not memory_efficient and not is_last else None,
+                post_downsample
             ]))
 
         # middle layers
