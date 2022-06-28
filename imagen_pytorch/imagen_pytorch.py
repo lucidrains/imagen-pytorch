@@ -1190,6 +1190,10 @@ class Unet(nn.Module):
         if cross_embed_downsample:
             downsample_klass = partial(CrossEmbedLayer, kernel_sizes = cross_embed_downsample_kernel_sizes)
 
+        # initial resnet block (for memory efficient unet)
+
+        self.init_resnet_block = ResnetBlock(init_dim, init_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], use_gca = use_global_context_attn) if memory_efficient else None
+
         # scale for resnet skip connections
 
         self.skip_connect_scale = 1. if not scale_skip_connection else (2 ** -0.5)
@@ -1450,6 +1454,11 @@ class Unet(nn.Module):
         # normalize conditioning tokens
 
         c = self.norm_cond(c)
+
+        # initial resnet block (for memory efficient unet)
+
+        if exists(self.init_resnet_block):
+            x = self.init_resnet_block(x, t)
 
         # go through the layers of the unet, down and up
 
