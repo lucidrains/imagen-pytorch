@@ -376,10 +376,10 @@ class Residual(nn.Module):
 class Parallel(nn.Module):
     def __init__(self, *fns):
         super().__init__()
-        self.modules = nn.ModuleList(fns)
+        self.fns = nn.ModuleList(fns)
 
     def forward(self, x):
-        outputs = [fn(x) for fn in zip(self.modules)]
+        outputs = [fn(x) for fn in self.fns]
         return sum(outputs)
 
 # attention pooling
