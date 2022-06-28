@@ -255,6 +255,8 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 - <a href="https://github.com/marunine">Marunine</a> for finding numerous bugs, and for sharing his experimental configurations and results
 
+- <a href="https://github.com/KhrulkovV">Valentin</a> for pointing out insufficient skip connections in the unet, as well as the specific method of attention conditioning in the base-unet in the appendix
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 

@@ -76,6 +76,15 @@ def pad_tuple_to_length(t, length, fillvalue = None):
         return t
     return (*t, *((fillvalue,) * remain_length))
 
+# helper classes
+
+class Identity(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+
+    def forward(self, x, *args, **kwargs):
+        return x
+
 # tensor helpers
 
 def log(t, eps: float = 1e-12):
@@ -493,26 +502,27 @@ class Attention(nn.Module):
         *,
         dim_head = 64,
         heads = 8,
-        causal = False,
+        context_dim = None
     ):
         super().__init__()
         self.scale = dim_head ** -0.5
         self.heads = heads
         inner_dim = dim_head * heads
 
-        self.causal = causal
         self.norm = LayerNorm(dim)
 
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
 
+        self.to_context = nn.Sequential(nn.LayerNorm(context_dim), nn.Linear(context_dim, dim_head * 2)) if exists(context_dim) else None
+
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim, bias = False),
             LayerNorm(dim)
         )
 
-    def forward(self, x, mask = None, attn_bias = None):
+    def forward(self, x, context = None, mask = None, attn_bias = None):
         b, n, device = *x.shape[:2], x.device
 
         x = self.norm(x)
@@ -526,6 +536,14 @@ class Attention(nn.Module):
         nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> b 1 d', b = b)
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
+
+        # add text conditioning, if present
+
+        if exists(context):
+            assert exists(self.to_context)
+            ck, cv = self.to_context(context).chunk(2, dim = -1)
+            k = torch.cat((ck, k), dim = -2)
+            v = torch.cat((cv, v), dim = -2)
 
         # calculate query / key similarities
 
@@ -608,7 +626,7 @@ class Block(nn.Module):
         norm = True
     ):
         super().__init__()
-        self.groupnorm = nn.GroupNorm(groups, dim) if norm else nn.Identity()
+        self.groupnorm = nn.GroupNorm(groups, dim) if norm else Identity()
         self.activation = nn.SiLU()
         self.project = nn.Conv2d(dim, dim_out, 3, padding = 1)
 
@@ -664,7 +682,7 @@ class ResnetBlock(nn.Module):
 
         self.gca = GlobalContext(dim_in = dim_out, dim_out = dim_out) if use_gca else Always(1)
 
-        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
+        self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else Identity()
 
 
     def forward(self, x, time_emb = None, cond = None):
@@ -705,7 +723,7 @@ class CrossAttention(nn.Module):
         context_dim = default(context_dim, dim)
 
         self.norm = LayerNorm(dim)
-        self.norm_context = LayerNorm(context_dim) if norm_context else nn.Identity()
+        self.norm_context = LayerNorm(context_dim) if norm_context else Identity()
 
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
@@ -795,7 +813,8 @@ class LinearAttention(nn.Module):
         dim,
         dim_head = 32,
         heads = 8,
-        dropout = 0.05
+        dropout = 0.05,
+        context_dim = None
     ):
         super().__init__()
         self.scale = dim_head ** -0.5
@@ -823,17 +842,26 @@ class LinearAttention(nn.Module):
             nn.Conv2d(inner_dim, inner_dim, 3, bias = False, padding = 1, groups = inner_dim)
         )
 
+        self.to_context = nn.Sequential(nn.LayerNorm(context_dim), nn.Linear(context_dim, inner_dim * 2, bias = False)) if exists(context_dim) else None
+
         self.to_out = nn.Sequential(
             nn.Conv2d(inner_dim, dim, 1, bias = False),
             ChanLayerNorm(dim)
         )
 
-    def forward(self, fmap):
+    def forward(self, fmap, context = None):
         h, x, y = self.heads, *fmap.shape[-2:]
 
         fmap = self.norm(fmap)
         q, k, v = map(lambda fn: fn(fmap), (self.to_q, self.to_k, self.to_v))
         q, k, v = rearrange_many((q, k, v), 'b (h c) x y -> (b h) (x y) c', h = h)
+
+        if exists(context):
+            assert exists(self.to_context)
+            ck, cv = self.to_context(context).chunk(2, dim = -1)
+            ck, cv = rearrange_many((ck, cv), 'b n (h d) -> (b h) n d', h = h)
+            k = torch.cat((k, ck), dim = -2)
+            v = torch.cat((v, cv), dim = -2)
 
         q = q.softmax(dim = -1)
         k = k.softmax(dim = -2)
@@ -901,14 +929,15 @@ class TransformerBlock(nn.Module):
         *,
         heads = 8,
         dim_head = 32,
-        ff_mult = 2
+        ff_mult = 2,
+        context_dim = None
     ):
         super().__init__()
-        self.attn = EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head))
+        self.attn = EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim))
         self.ff = ChanFeedForward(dim = dim, mult = ff_mult)
 
-    def forward(self, x):
-        x = self.attn(x) + x
+    def forward(self, x, context = None):
+        x = self.attn(x, context = context) + x
         x = self.ff(x) + x
         return x
 
@@ -919,14 +948,15 @@ class LinearAttentionTransformerBlock(nn.Module):
         *,
         heads = 8,
         dim_head = 32,
-        ff_mult = 2
+        ff_mult = 2,
+        context_dim = None
     ):
         super().__init__()
-        self.attn = LinearAttention(dim = dim, heads = heads, dim_head = dim_head)
+        self.attn = LinearAttention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim)
         self.ff = ChanFeedForward(dim = dim, mult = ff_mult)
 
-    def forward(self, x):
-        x = self.attn(x) + x
+    def forward(self, x, context = None):
+        x = self.attn(x, context = context) + x
         x = self.ff(x) + x
         return x
 
@@ -978,9 +1008,10 @@ class Unet(nn.Module):
         attn_dim_head = 64,
         attn_heads = 8,
         ff_mult = 2.,
-        lowres_cond = False, # for cascading diffusion - https://cascaded-diffusion.github.io/
+        lowres_cond = False,                # for cascading diffusion - https://cascaded-diffusion.github.io/
         layer_attns = True,
-        attend_at_middle = True, # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
+        layer_attns_add_text_cond = True,   # whether to condition the self-attention blocks with the text embeddings, as described in Appendix D.3.1
+        attend_at_middle = True,            # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
         layer_cross_attns = True,
         use_linear_attn = False,
         use_linear_cross_attn = False,
@@ -1182,7 +1213,7 @@ class Unet(nn.Module):
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
 
-            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
+            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else Identity)
 
             current_dim = dim_in
 
@@ -1206,7 +1237,7 @@ class Unet(nn.Module):
                 pre_downsample,
                 ResnetBlock(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(current_dim, current_dim, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
-                transformer_block_klass(dim = current_dim, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
+                transformer_block_klass(dim = current_dim, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
                 post_downsample
             ]))
 
@@ -1224,15 +1255,15 @@ class Unet(nn.Module):
             is_last = ind == (len(in_out) - 1)
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
-            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else nn.Identity)
+            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else Identity)
 
             skip_connect_dim = skip_connect_dims.pop()
 
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
-                transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult),
-                Upsample(dim_out, dim_in) if not is_last or memory_efficient else nn.Identity()
+                transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
+                Upsample(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
 
         # whether to do a final residual from initial conv to the final resnet block out
@@ -1434,7 +1465,7 @@ class Unet(nn.Module):
                 x = resnet_block(x, t)
                 hiddens.append(x)
 
-            x = attn_block(x)
+            x = attn_block(x, c)
             hiddens.append(x)
 
             if exists(post_downsample):
@@ -1457,7 +1488,7 @@ class Unet(nn.Module):
                 x = add_skip_connection(x)
                 x = resnet_block(x, t)
 
-            x = attn_block(x)
+            x = attn_block(x, c)
             x = upsample(x)
 
         # final top-most residual if needed
