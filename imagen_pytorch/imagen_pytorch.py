@@ -364,6 +364,15 @@ class Residual(nn.Module):
     def forward(self, x, **kwargs):
         return self.fn(x, **kwargs) + x
 
+class Parallel(nn.Module):
+    def __init__(self, *fns):
+        super().__init__()
+        self.modules = nn.ModuleList(fns)
+
+    def forward(self, x):
+        outputs = [fn(x) for fn in zip(self.modules)]
+        return sum(outputs)
+
 # attention pooling
 
 class PerceiverAttention(nn.Module):
@@ -1191,7 +1200,7 @@ class Unet(nn.Module):
 
             post_downsample = None
             if not memory_efficient:
-                post_downsample = downsample_klass(current_dim, dim_out) if not is_last else nn.Conv2d(dim_in, dim_out, 3, padding = 1)
+                post_downsample = downsample_klass(current_dim, dim_out) if not is_last else Parallel(nn.Conv2d(dim_in, dim_out, 3, padding = 1), nn.Conv2d(dim_in, dim_out, 1))
 
             self.downs.append(nn.ModuleList([
                 pre_downsample,
