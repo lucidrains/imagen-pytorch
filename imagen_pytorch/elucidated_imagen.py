@@ -1,3 +1,4 @@
+from math import sqrt
 from contextlib import contextmanager
 from typing import List
 from tqdm import tqdm
@@ -228,7 +229,7 @@ class ElucidatedImagen(nn.Module):
 
     def preconditioned_network_forward(
         self,
-        unet,
+        unet_forward,
         noised_images,
         sigma,
         *,
@@ -244,7 +245,7 @@ class ElucidatedImagen(nn.Module):
 
         padded_sigma = rearrange(sigma, 'b -> b 1 1 1')
 
-        net_out = unet(
+        net_out = unet_forward(
             self.c_in(sigma_data, padded_sigma) * noised_images,
             self.c_noise(sigma),
             **kwargs
@@ -262,58 +263,109 @@ class ElucidatedImagen(nn.Module):
     # sample schedule
     # equation (5) in the paper
 
-    def sample_schedule(self, num_sample_steps = None):
-        num_sample_steps = default(num_sample_steps, self.num_sample_steps)
-
+    def sample_schedule(
+        self,
+        num_sample_steps,
+        rho,
+        sigma_min,
+        sigma_max
+    ):
         N = num_sample_steps
-        inv_rho = 1 / self.rho
+        inv_rho = 1 / rho
 
         steps = torch.arange(num_sample_steps, device = self.device, dtype = torch.float32)
-        sigmas = (self.sigma_max ** inv_rho + steps / (N - 1) * (self.sigma_min ** inv_rho - self.sigma_max ** inv_rho)) ** self.rho
+        sigmas = (sigma_max ** inv_rho + steps / (N - 1) * (sigma_min ** inv_rho - sigma_max ** inv_rho)) ** rho
 
         sigmas = F.pad(sigmas, (0, 1), value = 0.) # last step is sigma value of 0.
         return sigmas
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_images = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None, pred_objective = 'noise', dynamic_threshold = True):
-        b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
-        noise = torch.randn_like(x)
-        # no noise when t == 0
-        is_last_sampling_timestep = (t_next == 0) if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) else (t == 0)
-        nonzero_mask = (1 - is_last_sampling_timestep.float()).reshape(b, *((1,) * (len(x.shape) - 1)))
-        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+    def one_unet_sample(
+        self,
+        unet,
+        shape,
+        *,
+        unet_number,
+        num_sample_steps,
+        clamp = True,
+        dynamic_threshold = True,
+        cond_scale = 1.,
+        **kwargs
+    ):
+        # get specific sampling hyperparameters for unet
 
-    @torch.no_grad()
-    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_images = None, cond_scale = 1, pred_objective = 'noise', dynamic_threshold = True):
-        device = self.device
+        unet_index = unet_number - 1
+        sigma_min = self.sigma_min[unet_index]
+        sigma_max = self.sigma_max[unet_index]
+        rho       = self.rho[unet_index]
+        S_tmin    = self.S_tmin[unet_index]
+        S_tmax    = self.S_tmax[unet_index]
+        S_churn   = self.S_churn[unet_index]
+        S_noise   = self.S_noise[unet_index]
 
-        batch = shape[0]
-        img = torch.randn(shape, device = device)
-        lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
+        # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
 
-        timesteps = noise_scheduler.get_sampling_timesteps(batch, device = device)
+        sigmas = self.sample_schedule(num_sample_steps, rho, sigma_min, sigma_max)
 
-        for times, times_next in tqdm(timesteps, desc = 'sampling loop time step', total = len(timesteps)):
-            img = self.p_sample(
-                unet,
-                img,
-                times,
-                t_next = times_next,
-                text_embeds = text_embeds,
-                text_mask = text_mask,
-                cond_images = cond_images,
+        gammas = torch.where(
+            (sigmas >= S_tmin) & (sigmas <= S_tmax),
+            min(S_churn / num_sample_steps, sqrt(2) - 1),
+            0.
+        )
+
+        sigmas_and_gammas = list(zip(sigmas[:-1], sigmas[1:], gammas[:-1]))
+
+        # images is noise at the beginning
+
+        init_sigma = sigmas[0]
+
+        images = init_sigma * torch.randn(shape, device = self.device)
+        return images
+
+        # gradually denoise
+
+        for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc = 'sampling time step'):
+            sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
+
+            eps = S_noise * torch.randn(shape, device = self.device) # stochastic sampling
+
+            sigma_hat = sigma + gamma * sigma
+            images_hat = images + sqrt(sigma_hat ** 2 - sigma ** 2) * eps
+
+            model_output = self.preconditioned_network_forward(
+                unet.forward_with_cond_scale,
+                images_hat,
+                sigma_hat,
+                clamp = clamp,
+                dynamic_threshold = dynamic_threshold,
                 cond_scale = cond_scale,
-                lowres_cond_img = lowres_cond_img,
-                lowres_noise_times = lowres_noise_times,
-                noise_scheduler = noise_scheduler,
-                pred_objective = pred_objective,
-                dynamic_threshold = dynamic_threshold
+                **kwargs
             )
 
-        img.clamp_(-1., 1.)
-        unnormalize_img = self.unnormalize_img(img)
-        return unnormalize_img
+            denoised_over_sigma = (images_hat - model_output) / sigma_hat
+
+            images_next = images_hat + (sigma_next - sigma_hat) * denoised_over_sigma
+
+            # second order correction, if not the last timestep
+
+            if sigma_next != 0:
+                model_output_next = self.preconditioned_network_forward(
+                    unet_forward_with_cond_scale,
+                    images_next,
+                    sigma_next,
+                    clamp = clamp,
+                    dynamic_threshold = dynamic_threshold,
+                    cond_scale = cond_scale,
+                    **kwargs
+                )
+
+                denoised_prime_over_sigma = (images_next - model_output_next) / sigma_next
+                images_next = images_hat + 0.5 * (sigma_next - sigma_hat) * (denoised_over_sigma + denoised_prime_over_sigma)
+
+            images = images_next
+
+        images = images.clamp(-1., 1.)
+        return self.unnormalize_img(images)
 
     @torch.no_grad()
     @eval_decorator
@@ -351,7 +403,7 @@ class ElucidatedImagen(nn.Module):
 
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
 
-        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding)):
+        for unet_number, unet, channel, image_size, num_sample_steps, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.num_sample_steps, self.dynamic_thresholding)):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
 
@@ -367,17 +419,17 @@ class ElucidatedImagen(nn.Module):
 
                 shape = (batch_size, self.channels, image_size, image_size)
 
-                img = self.p_sample_loop(
+                img = self.one_unet_sample(
                     unet,
                     shape,
+                    num_sample_steps = num_sample_steps,
+                    unet_number = unet_number,
                     text_embeds = text_embeds,
                     text_mask = text_masks,
                     cond_images = cond_images,
                     cond_scale = cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
-                    noise_scheduler = noise_scheduler,
-                    pred_objective = pred_objective,
                     dynamic_threshold = dynamic_threshold
                 )
 
@@ -400,8 +452,7 @@ class ElucidatedImagen(nn.Module):
 
     # training
 
-    def loss_weight(self, unet_index, sigma):
-        sigma_data = self.sigma_data[unet_index]
+    def loss_weight(self, sigma_data, sigma):
         return (sigma ** 2 + sigma_data ** 2) * (sigma * sigma_data) ** -2
 
     def noise_distribution(self, unet_index, batch_size):
@@ -485,7 +536,7 @@ class ElucidatedImagen(nn.Module):
         # get prediction
 
         denoised_images = self.preconditioned_network_forward(
-            unet,
+            unet.forward,
             noised_images,
             sigmas,
             sigma_data = sigma_data,
@@ -504,7 +555,7 @@ class ElucidatedImagen(nn.Module):
 
         # loss weighting
 
-        losses = losses * self.loss_weight(unet_index, sigmas)
+        losses = losses * self.loss_weight(sigma_data, sigmas)
 
         # return average loss
 

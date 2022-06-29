@@ -221,6 +221,34 @@ for u in (1, 2):
 images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 ```
 
+## Experimental
+
+<a href="https://research.nvidia.com/person/tero-karras">Tero Karras</a> of StyleGAN fame has written a <a href="https://arxiv.org/abs/2206.00364">new paper</a> with results that have been corroborated by a number of independent researchers as well as on my own machine. I have decided to create a version of `Imagen`, the `ElucidatedImagen`, so that one can use the new elucidated DDPM for text-guided cascading generation.
+
+Simply import `ElucidatedImagen`, and then instantiate the instance as you did before. The hyperparameters are different than the usual ones for discrete and continuous time gaussian diffusion, and can be individualized for each unet in the cascade.
+
+Ex.
+
+```python
+
+imagen = ElucidatedImagen(
+    unets = (unet1, unet2),
+    image_sizes = (64, 128),
+    cond_drop_prob = 0.1,
+    sigma_min = 0.002,           # min noise level
+    sigma_max = (80, 160),       # max noise level, @crowsonkb recommends double the max noise level for upsampler
+    sigma_data = 0.5,            # standard deviation of data distribution
+    rho = 7,                     # controls the sampling schedule
+    P_mean = -1.2,               # mean of log-normal distribution from which noise is drawn for training
+    P_std = 1.2,                 # standard deviation of log-normal distribution from which noise is drawn for training
+    S_churn = 80,                # parameters for stochastic sampling - depends on dataset, Table 5 in apper
+    S_tmin = 0.05,
+    S_tmax = 50,
+    S_noise = 1.003,
+).cuda()
+
+```
+
 ## FAQ
 
 - Why are my generated images not aligning well with the text?
