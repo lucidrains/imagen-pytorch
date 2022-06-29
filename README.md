@@ -238,6 +238,7 @@ imagen = ElucidatedImagen(
     unets = (unet1, unet2),
     image_sizes = (64, 128),
     cond_drop_prob = 0.1,
+    num_sample_steps = (64, 32), # number of sample steps - 64 for base unet, 32 for upsampler (just an example, have no clue what the optimal values are)
     sigma_min = 0.002,           # min noise level
     sigma_max = (80, 160),       # max noise level, @crowsonkb recommends double the max noise level for upsampler
     sigma_data = 0.5,            # standard deviation of data distribution

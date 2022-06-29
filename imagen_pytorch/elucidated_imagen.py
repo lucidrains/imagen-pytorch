@@ -295,13 +295,14 @@ class ElucidatedImagen(nn.Module):
         # get specific sampling hyperparameters for unet
 
         unet_index = unet_number - 1
-        sigma_min = self.sigma_min[unet_index]
-        sigma_max = self.sigma_max[unet_index]
-        rho       = self.rho[unet_index]
-        S_tmin    = self.S_tmin[unet_index]
-        S_tmax    = self.S_tmax[unet_index]
-        S_churn   = self.S_churn[unet_index]
-        S_noise   = self.S_noise[unet_index]
+        sigma_min  = self.sigma_min[unet_index]
+        sigma_max  = self.sigma_max[unet_index]
+        sigma_data = self.sigma_data[unet_index]
+        rho        = self.rho[unet_index]
+        S_tmin     = self.S_tmin[unet_index]
+        S_tmax     = self.S_tmax[unet_index]
+        S_churn    = self.S_churn[unet_index]
+        S_noise    = self.S_noise[unet_index]
 
         # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
 
@@ -320,7 +321,16 @@ class ElucidatedImagen(nn.Module):
         init_sigma = sigmas[0]
 
         images = init_sigma * torch.randn(shape, device = self.device)
-        return images
+
+        # unet kwargs
+
+        unet_kwargs = dict(
+            sigma_data = sigma_data,
+            clamp = clamp,
+            dynamic_threshold = dynamic_threshold,
+            cond_scale = cond_scale,
+            **kwargs
+        )
 
         # gradually denoise
 
@@ -336,10 +346,7 @@ class ElucidatedImagen(nn.Module):
                 unet.forward_with_cond_scale,
                 images_hat,
                 sigma_hat,
-                clamp = clamp,
-                dynamic_threshold = dynamic_threshold,
-                cond_scale = cond_scale,
-                **kwargs
+                **unet_kwargs
             )
 
             denoised_over_sigma = (images_hat - model_output) / sigma_hat
@@ -350,13 +357,10 @@ class ElucidatedImagen(nn.Module):
 
             if sigma_next != 0:
                 model_output_next = self.preconditioned_network_forward(
-                    unet_forward_with_cond_scale,
+                    unet.forward_with_cond_scale,
                     images_next,
                     sigma_next,
-                    clamp = clamp,
-                    dynamic_threshold = dynamic_threshold,
-                    cond_scale = cond_scale,
-                    **kwargs
+                    **unet_kwargs
                 )
 
                 denoised_prime_over_sigma = (images_next - model_output_next) / sigma_next
