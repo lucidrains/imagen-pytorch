@@ -54,6 +54,8 @@ class ElucidatedImagen(nn.Module):
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
+        timesteps = 1000,
+        noise_schedule = 'linear',
         num_sample_steps = 32,                      # number of sampling steps
         sigma_min = 0.002,                          # min noise level
         sigma_max = 80,                             # max noise level
@@ -85,7 +87,7 @@ class ElucidatedImagen(nn.Module):
 
         # lowres augmentation noise schedule
 
-        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(noise_schedule = 'linear', timesteps = 1000)
+        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(noise_schedule = noise_schedule, timesteps = timesteps)
 
         # get text encoder
 
