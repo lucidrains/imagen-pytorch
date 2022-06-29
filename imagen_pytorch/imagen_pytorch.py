@@ -275,7 +275,7 @@ def log_snr_to_alpha_sigma(log_snr):
     return torch.sqrt(torch.sigmoid(log_snr)), torch.sqrt(torch.sigmoid(-log_snr))
 
 class GaussianDiffusionContinuousTimes(nn.Module):
-    def __init__(self, *, noise_schedule, timesteps):
+    def __init__(self, *, noise_schedule, timesteps = 1000):
         super().__init__()
         if noise_schedule == 'linear':
             self.log_snr = beta_linear_log_snr
@@ -1570,6 +1570,7 @@ class Imagen(nn.Module):
         loss_type = 'l2',
         noise_schedules = 'cosine',
         pred_objectives = 'noise',
+        lowres_noise_schedule = 'linear',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
@@ -1632,7 +1633,7 @@ class Imagen(nn.Module):
 
         # lowres augmentation noise schedule
 
-        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(noise_schedule = 'linear', timesteps = 1000)
+        self.lowres_noise_schedule = GaussianDiffusionContinuousTimes(noise_schedule = lowres_noise_schedule)
 
         # ddpm objectives - predicting noise by default
 
