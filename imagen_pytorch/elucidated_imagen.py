@@ -1,6 +1,7 @@
 from math import sqrt
 from contextlib import contextmanager
 from typing import List
+from collections import namedtuple
 from tqdm import tqdm
 
 import torch
@@ -30,6 +31,24 @@ from imagen_pytorch.imagen_pytorch import (
 )
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
+
+# constants
+
+Hparams_fields = [
+    'num_sample_steps',
+    'sigma_min',
+    'sigma_max',
+    'sigma_data',
+    'rho',
+    'P_mean',
+    'P_std',
+    'S_churn',
+    'S_tmin',
+    'S_tmax',
+    'S_noise'
+]
+
+Hparams = namedtuple('Hparams', Hparams_fields)
 
 # helper functions
 
@@ -144,21 +163,22 @@ class ElucidatedImagen(nn.Module):
 
         # elucidating parameters
 
-        self.sigma_min = cast_tuple(sigma_min, num_unets)
-        self.sigma_max = cast_tuple(sigma_max, num_unets)
-        self.sigma_data = cast_tuple(sigma_data, num_unets)
+        hparams = [
+            num_sample_steps,
+            sigma_min,
+            sigma_max,
+            sigma_data,
+            rho,
+            P_mean,
+            P_std,
+            S_churn,
+            S_tmin,
+            S_tmax,
+            S_noise,
+        ]
 
-        self.rho = cast_tuple(rho, num_unets)
-
-        self.P_mean = cast_tuple(P_mean, num_unets)
-        self.P_std = cast_tuple(P_std, num_unets)
-
-        self.num_sample_steps = cast_tuple(num_sample_steps, num_unets)  # otherwise known as N in the paper
-
-        self.S_churn = cast_tuple(S_churn, num_unets)
-        self.S_tmin = cast_tuple(S_tmin, num_unets)
-        self.S_tmax = cast_tuple(S_tmax, num_unets)
-        self.S_noise = cast_tuple(S_noise, num_unets)
+        hparams = [cast_tuple(hp, num_unets) for hp in hparams]
+        self.hparams = [Hparams(*unet_hp) for unet_hp in zip(*hparams)]
 
         # one temp parameter for keeping track of device
 
@@ -295,23 +315,15 @@ class ElucidatedImagen(nn.Module):
     ):
         # get specific sampling hyperparameters for unet
 
-        unet_index = unet_number - 1
-        sigma_min  = self.sigma_min[unet_index]
-        sigma_max  = self.sigma_max[unet_index]
-        sigma_data = self.sigma_data[unet_index]
-        rho        = self.rho[unet_index]
-        S_tmin     = self.S_tmin[unet_index]
-        S_tmax     = self.S_tmax[unet_index]
-        S_churn    = self.S_churn[unet_index]
-        S_noise    = self.S_noise[unet_index]
+        hp = self.hparams[unet_number - 1]
 
         # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
 
-        sigmas = self.sample_schedule(num_sample_steps, rho, sigma_min, sigma_max)
+        sigmas = self.sample_schedule(hp.num_sample_steps, hp.rho, hp.sigma_min, hp.sigma_max)
 
         gammas = torch.where(
-            (sigmas >= S_tmin) & (sigmas <= S_tmax),
-            min(S_churn / num_sample_steps, sqrt(2) - 1),
+            (sigmas >= hp.S_tmin) & (sigmas <= hp.S_tmax),
+            min(hp.S_churn / hp.num_sample_steps, sqrt(2) - 1),
             0.
         )
 
@@ -326,7 +338,7 @@ class ElucidatedImagen(nn.Module):
         # unet kwargs
 
         unet_kwargs = dict(
-            sigma_data = sigma_data,
+            sigma_data = hp.sigma_data,
             clamp = clamp,
             dynamic_threshold = dynamic_threshold,
             cond_scale = cond_scale,
@@ -338,7 +350,7 @@ class ElucidatedImagen(nn.Module):
         for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc = 'sampling time step'):
             sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
 
-            eps = S_noise * torch.randn(shape, device = self.device) # stochastic sampling
+            eps = hp.S_noise * torch.randn(shape, device = self.device) # stochastic sampling
 
             sigma_hat = sigma + gamma * sigma
             images_hat = images + sqrt(sigma_hat ** 2 - sigma ** 2) * eps
@@ -408,7 +420,7 @@ class ElucidatedImagen(nn.Module):
 
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
 
-        for unet_number, unet, channel, image_size, num_sample_steps, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.num_sample_steps, self.dynamic_thresholding)):
+        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding)):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
 
@@ -427,7 +439,7 @@ class ElucidatedImagen(nn.Module):
                 img = self.one_unet_sample(
                     unet,
                     shape,
-                    num_sample_steps = num_sample_steps,
+                    num_sample_steps = unet_hparam.num_sample_steps,
                     unet_number = unet_number,
                     text_embeds = text_embeds,
                     text_mask = text_masks,
@@ -460,9 +472,7 @@ class ElucidatedImagen(nn.Module):
     def loss_weight(self, sigma_data, sigma):
         return (sigma ** 2 + sigma_data ** 2) * (sigma * sigma_data) ** -2
 
-    def noise_distribution(self, unet_index, batch_size):
-        P_mean = self.P_mean[unet_index]
-        P_std = self.P_std[unet_index]
+    def noise_distribution(self, P_mean, P_std, batch_size):
         return (P_mean + P_std * torch.randn((batch_size,), device = self.device)).exp()
 
     def forward(
@@ -481,8 +491,8 @@ class ElucidatedImagen(nn.Module):
         unet = self.get_unet(unet_number)
 
         target_image_size    = self.image_sizes[unet_index]
-        sigma_data           = self.sigma_data[unet_index]
         prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
+        hp                   = self.hparams[unet_index]
 
         batch_size, c, h, w, device,  = *images.shape, images.device
 
@@ -530,7 +540,7 @@ class ElucidatedImagen(nn.Module):
 
         # get the sigmas
 
-        sigmas = self.noise_distribution(unet_index, batch_size)
+        sigmas = self.noise_distribution(hp.P_mean, hp.P_std, batch_size)
         padded_sigmas = rearrange(sigmas, 'b -> b 1 1 1')
 
         # noise
@@ -544,7 +554,7 @@ class ElucidatedImagen(nn.Module):
             unet.forward,
             noised_images,
             sigmas,
-            sigma_data = sigma_data,
+            sigma_data = hp.sigma_data,
             text_embeds = text_embeds,
             text_mask = text_masks,
             cond_images = cond_images,
@@ -560,7 +570,7 @@ class ElucidatedImagen(nn.Module):
 
         # loss weighting
 
-        losses = losses * self.loss_weight(sigma_data, sigmas)
+        losses = losses * self.loss_weight(hp.sigma_data, sigmas)
 
         # return average loss
 
