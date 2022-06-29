@@ -392,3 +392,17 @@ Not at the moment but one will likely be trained and open sourced within the yea
     volume  = {abs/2206.00364}
 }
 ```
+
+```bibtex
+@inproceedings{NEURIPS2020_4c5bcfec,
+    author      = {Ho, Jonathan and Jain, Ajay and Abbeel, Pieter},
+    booktitle   = {Advances in Neural Information Processing Systems},
+    editor      = {H. Larochelle and M. Ranzato and R. Hadsell and M.F. Balcan and H. Lin},
+    pages       = {6840--6851},
+    publisher   = {Curran Associates, Inc.},
+    title       = {Denoising Diffusion Probabilistic Models},
+    url         = {https://proceedings.neurips.cc/paper/2020/file/4c5bcfec8584af0d967f1ab10179ca4b-Paper.pdf},
+    volume      = {33},
+    year        = {2020}
+}
+```
