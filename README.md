@@ -347,3 +347,13 @@ Not at the moment but one will likely be trained and open sourced within the yea
     primaryClass = {cs.CV}
 }
 ```
+
+```bibtex
+@article{Karras2022ElucidatingTD,
+    title   = {Elucidating the Design Space of Diffusion-Based Generative Models},
+    author  = {Tero Karras and Miika Aittala and Timo Aila and Samuli Laine},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2206.00364}
+}
+```
