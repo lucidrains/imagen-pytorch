@@ -230,6 +230,9 @@ Simply import `ElucidatedImagen`, and then instantiate the instance as you did b
 Ex.
 
 ```python
+from imagen_pytorch import ElucidatedImagen
+
+# instantiate your unets ...
 
 imagen = ElucidatedImagen(
     unets = (unet1, unet2),
@@ -246,6 +249,8 @@ imagen = ElucidatedImagen(
     S_tmax = 50,
     S_noise = 1.003,
 ).cuda()
+
+# rest is the same as above
 
 ```
 
