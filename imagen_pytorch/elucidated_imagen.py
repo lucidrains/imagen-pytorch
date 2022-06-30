@@ -307,7 +307,6 @@ class ElucidatedImagen(nn.Module):
         shape,
         *,
         unet_number,
-        num_sample_steps,
         clamp = True,
         dynamic_threshold = True,
         cond_scale = 1.,
@@ -439,7 +438,6 @@ class ElucidatedImagen(nn.Module):
                 img = self.one_unet_sample(
                     unet,
                     shape,
-                    num_sample_steps = unet_hparam.num_sample_steps,
                     unet_number = unet_number,
                     text_embeds = text_embeds,
                     text_mask = text_masks,
@@ -510,18 +508,16 @@ class ElucidatedImagen(nn.Module):
 
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
 
-        def get_lowres_aug_times():
-            if self.per_sample_random_aug_noise_level:
-                return self.lowres_noise_schedule.sample_random_times(batch_size, device = device)
-
-            lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
-            return repeat(lowres_aug_time, '1 -> b', b = batch_size)
-
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
             lowres_cond_img = resize_image_to(images, prev_image_size)
             lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
-            lowres_aug_times = get_lowres_aug_times()
+
+            if self.per_sample_random_aug_noise_level:
+                lowres_aug_times = self.lowres_noise_schedule.sample_random_times(batch_size, device = device)
+            else:
+                lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
+                lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = batch_size)
 
         images = resize_image_to(images, target_image_size)
 
@@ -535,7 +531,6 @@ class ElucidatedImagen(nn.Module):
 
         lowres_cond_img_noisy = None
         if exists(lowres_cond_img):
-            lowres_aug_times = get_lowres_aug_times()
             lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
         # get the sigmas
