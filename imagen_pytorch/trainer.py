@@ -15,6 +15,8 @@ from torch.cuda.amp import autocast, GradScaler
 import pytorch_warmup as warmup
 
 from imagen_pytorch.imagen_pytorch import Imagen
+from imagen_pytorch.elucidated_imagen import ElucidatedImagen
+
 from imagen_pytorch.version import __version__
 from packaging import version
 
@@ -181,7 +183,7 @@ class ImagenTrainer(nn.Module):
     ):
         super().__init__()
 
-        assert isinstance(imagen, Imagen)
+        assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
 
         self.imagen = imagen
