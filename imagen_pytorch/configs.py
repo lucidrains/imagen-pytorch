@@ -102,15 +102,15 @@ class ImagenTrainerConfig(AllowExtraBaseModel):
     imagen:                 dict
     elucidated:             bool = False
     use_ema:                bool = True
-    lr:                     float = 1e-4
-    eps:                    float = 1e-8
+    lr:                     SingleOrList(float) = 1e-4
+    eps:                    SingleOrList(float) = 1e-8
     beta1:                  float = 0.9
     beta2:                  float = 0.99
     max_grad_norm:          Optional[float] = None
     amp:                    bool = False
     group_wd_params:        bool = True
-    warmup_steps:           Optional[int] = None
-    cosine_decay_max_steps: Optional[int] = None
+    warmup_steps:           SingleOrList(Optional[int]) = None
+    cosine_decay_max_steps: SingleOrList(Optional[int]) = None
 
     def create(self):
         trainer_kwargs = self.dict()
