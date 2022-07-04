@@ -4,6 +4,7 @@ from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
 from enum import Enum
 
 from imagen_pytorch.imagen_pytorch import Imagen, Unet
+from imagen_pytorch.trainer import ImagenTrainer
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 
 from imagen_pytorch.t5 import DEFAULT_T5_NAME, get_encoded_dim
@@ -66,26 +67,23 @@ class ImagenConfig(AllowExtraBaseModel):
         unets = [Unet(**config) for config in unet_configs]
         return Imagen(unets, **decoder_kwargs)
 
-    class Config:
-        extra = "allow"
-
 class ElucidatedImagenConfig(AllowExtraBaseModel):
     unets:                  ListOrTuple(UnetConfig)
     image_sizes:            ListOrTuple(int)
     text_encoder_name:      str = DEFAULT_T5_NAME
     channels:               int = 3
     cond_drop_prob:         float = 0.5
-    num_sample_steps:       ListOrTuple(int) = 32
-    sigma_min:              ListOrTuple(float) = 0.002
-    sigma_max:              ListOrTuple(int) = 80
-    sigma_data:             ListOrTuple(float) = 0.5
-    rho:                    ListOrTuple(int) = 7
-    P_mean:                 ListOrTuple(float) = -1.2
-    P_std:                  ListOrTuple(float) = 1.2
-    S_churn:                ListOrTuple(int) = 80
-    S_tmin:                 ListOrTuple(float) = 0.05
-    S_tmax:                 ListOrTuple(int) = 50
-    S_noise:                ListOrTuple(float) = 1.003
+    num_sample_steps:       SingleOrList(int) = 32
+    sigma_min:              SingleOrList(float) = 0.002
+    sigma_max:              SingleOrList(int) = 80
+    sigma_data:             SingleOrList(float) = 0.5
+    rho:                    SingleOrList(int) = 7
+    P_mean:                 SingleOrList(float) = -1.2
+    P_std:                  SingleOrList(float) = 1.2
+    S_churn:                SingleOrList(int) = 80
+    S_tmin:                 SingleOrList(float) = 0.05
+    S_tmax:                 SingleOrList(int) = 50
+    S_noise:                SingleOrList(float) = 1.003
 
     @validator('image_sizes')
     def check_image_sizes(cls, image_sizes, values):
@@ -100,5 +98,27 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
         unets = [Unet(**config) for config in unet_configs]
         return ElucidatedImagen(unets, **decoder_kwargs)
 
-    class Config:
-        extra = "allow"
+class ImagenTrainerConfig(AllowExtraBaseModel):
+    imagen:                 dict
+    elucidated:             bool = False
+    use_ema:                bool = True
+    lr:                     float = 1e-4
+    eps:                    float = 1e-8
+    beta1:                  float = 0.9
+    beta2:                  float = 0.99
+    max_grad_norm:          Optional[float] = None
+    amp:                    bool = False
+    group_wd_params:        bool = True
+    warmup_steps:           Optional[int] = None
+    cosine_decay_max_steps: Optional[int] = None
+
+    def create(self):
+        trainer_kwargs = self.dict()
+
+        imagen_config = trainer_kwargs.pop('imagen')
+        elucidated = trainer_kwargs.pop('elucidated')
+
+        imagen_config_klass = ElucidatedImagenConfig if elucidated else ImagenConfig
+        imagen = imagen_config_klass(**imagen_config).create()
+
+        return ImagenTrainer(imagen, **trainer_kwargs)
