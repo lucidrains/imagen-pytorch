@@ -44,6 +44,9 @@ class UnetConfig(AllowExtraBaseModel):
     attn_dim_head:      int = 32
     attn_heads:         int = 16
 
+    def create(self):
+        return Unet(**self.dict())
+
 class ImagenConfig(AllowExtraBaseModel):
     unets:                  ListOrTuple(UnetConfig)
     image_sizes:            ListOrTuple(int)
@@ -63,8 +66,9 @@ class ImagenConfig(AllowExtraBaseModel):
 
     def create(self):
         decoder_kwargs = self.dict()
-        unet_configs = decoder_kwargs.pop('unets')
-        unets = [Unet(**config) for config in unet_configs]
+        decoder_kwargs.pop('unets')
+
+        unets = [unet.create() for unet in self.unets]
         return Imagen(unets, **decoder_kwargs)
 
 class ElucidatedImagenConfig(AllowExtraBaseModel):
@@ -94,8 +98,9 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
 
     def create(self):
         decoder_kwargs = self.dict()
-        unet_configs = decoder_kwargs.pop('unets')
-        unets = [Unet(**config) for config in unet_configs]
+        decoder_kwargs.pop('unets')
+
+        unets = [unet.create() for unet in self.unets]
         return ElucidatedImagen(unets, **decoder_kwargs)
 
 class ImagenTrainerConfig(AllowExtraBaseModel):
