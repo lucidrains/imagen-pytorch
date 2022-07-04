@@ -4,6 +4,8 @@ from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
 from enum import Enum
 
 from imagen_pytorch.imagen_pytorch import Imagen, Unet
+from imagen_pytorch.elucidated_imagen import ElucidatedImagen
+
 from imagen_pytorch.t5 import DEFAULT_T5_NAME, get_encoded_dim
 
 # helper functions
@@ -33,27 +35,23 @@ class AllowExtraBaseModel(BaseModel):
 # imagen pydantic classes
 
 class UnetConfig(AllowExtraBaseModel):
-    dim: int
-    dim_mults: ListOrTuple(int)
-    text_embed_dim: int = get_encoded_dim(DEFAULT_T5_NAME)
-    cond_dim: int = None
-    channels: int = 3
-    attn_dim_head: int = 32
-    attn_heads: int = 16
+    dim:                int
+    dim_mults:          ListOrTuple(int)
+    text_embed_dim:     int = get_encoded_dim(DEFAULT_T5_NAME)
+    cond_dim:           int = None
+    channels:           int = 3
+    attn_dim_head:      int = 32
+    attn_heads:         int = 16
 
 class ImagenConfig(AllowExtraBaseModel):
-    unets: ListOrTuple(UnetConfig)
-    image_sizes: ListOrTuple(int)
-    timesteps: SingleOrList(int) = 1000
-    noise_schedules: SingleOrList(NoiseSchedule) = 'cosine'
-    warmup_steps: SingleOrList(int) = None
-    cosine_decay_max_steps: SingleOrList(int) = None
-    text_encoder_name: str = DEFAULT_T5_NAME
-    channels: int = 3
-    loss_type: str = 'l2'
-    learned_variance: bool = True
-    cond_drop_prob: float = 0.5,
-    accelerate: bool = False
+    unets:                  ListOrTuple(UnetConfig)
+    image_sizes:            ListOrTuple(int)
+    timesteps:              SingleOrList(int) = 1000
+    noise_schedules:        SingleOrList(NoiseSchedule) = 'cosine'
+    text_encoder_name:      str = DEFAULT_T5_NAME
+    channels:               int = 3
+    loss_type:              str = 'l2'
+    cond_drop_prob:         float = 0.5
 
     @validator('image_sizes')
     def check_image_sizes(cls, image_sizes, values):
@@ -67,6 +65,40 @@ class ImagenConfig(AllowExtraBaseModel):
         unet_configs = decoder_kwargs.pop('unets')
         unets = [Unet(**config) for config in unet_configs]
         return Imagen(unets, **decoder_kwargs)
+
+    class Config:
+        extra = "allow"
+
+class ElucidatedImagenConfig(AllowExtraBaseModel):
+    unets:                  ListOrTuple(UnetConfig)
+    image_sizes:            ListOrTuple(int)
+    text_encoder_name:      str = DEFAULT_T5_NAME
+    channels:               int = 3
+    cond_drop_prob:         float = 0.5
+    num_sample_steps:       ListOrTuple(int) = 32
+    sigma_min:              ListOrTuple(float) = 0.002
+    sigma_max:              ListOrTuple(int) = 80
+    sigma_data:             ListOrTuple(float) = 0.5
+    rho:                    ListOrTuple(int) = 7
+    P_mean:                 ListOrTuple(float) = -1.2
+    P_std:                  ListOrTuple(float) = 1.2
+    S_churn:                ListOrTuple(int) = 80
+    S_tmin:                 ListOrTuple(float) = 0.05
+    S_tmax:                 ListOrTuple(int) = 50
+    S_noise:                ListOrTuple(float) = 1.003
+
+    @validator('image_sizes')
+    def check_image_sizes(cls, image_sizes, values):
+        unets = values.get('unets')
+        if len(image_sizes) != len(unets):
+            raise ValueError(f'image sizes length {len(image_sizes)} must be equivalent to the number of unets {len(unets)}')
+        return image_sizes
+
+    def create(self):
+        decoder_kwargs = self.dict()
+        unet_configs = decoder_kwargs.pop('unets')
+        unets = [Unet(**config) for config in unet_configs]
+        return ElucidatedImagen(unets, **decoder_kwargs)
 
     class Config:
         extra = "allow"

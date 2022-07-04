@@ -6,3 +6,7 @@ from imagen_pytorch.version import __version__
 # imagen using the elucidated ddpm from Tero Karras' new paper
 
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
+
+# configs
+
+from imagen_pytorch.configs import UnetConfig, ImagenConfig, ElucidatedImagenConfig
