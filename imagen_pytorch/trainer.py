@@ -8,6 +8,7 @@ from collections.abc import Iterable
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.cuda.amp import autocast, GradScaler
@@ -231,7 +232,7 @@ class ImagenTrainer(nn.Module):
 
         self.max_grad_norm = max_grad_norm
 
-        self.register_buffer('step', torch.tensor([0.]))
+        self.register_buffer('steps', torch.tensor([0] * self.num_unets))
 
         # automatic set device to imagen's device, if needed
 
@@ -245,7 +246,7 @@ class ImagenTrainer(nn.Module):
         save_obj = dict(
             model = self.imagen.state_dict(),
             version = __version__,
-            step = self.step.item(),
+            step = self.step.cpu(),
             **kwargs
         )
 
@@ -283,7 +284,7 @@ class ImagenTrainer(nn.Module):
             print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
 
         self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
-        self.step.copy_(torch.ones_like(self.step) * loaded_obj['step'])
+        self.step.copy_(loaded_obj['step'])
 
         if only_model:
             return loaded_obj
@@ -357,7 +358,7 @@ class ImagenTrainer(nn.Module):
             if exists(scheduler):
                 scheduler.step()
 
-        self.step += 1
+        self.steps += F.one_hot(torch.tensor(unet_number - 1, device = self.steps.device), num_classes = len(self.steps))
 
     @torch.no_grad()
     @cast_torch_tensor
