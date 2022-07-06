@@ -1313,6 +1313,19 @@ class Unet(nn.Module):
 
         return self.__class__(**{**self._locals, **updated_kwargs})
 
+    # methods for returning the full unet config as well as its parameter state
+
+    def to_config_and_state_dict(self):
+        return self._locals, self.state_dict()
+
+    # class method for rehydrating the unet from its config and state dict
+
+    @classmethod
+    def from_config_and_state_dict(klass, config, state_dict):
+        unet = klass(**config)
+        unet.load_state_dict(state_dict)
+        return unet
+
     def forward_with_cond_scale(
         self,
         *args,
