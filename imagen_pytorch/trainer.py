@@ -367,7 +367,7 @@ class ImagenTrainer(nn.Module):
         if kwargs.pop('use_non_ema', False) or not self.use_ema:
             return self.imagen.sample(*args, **kwargs)
 
-        device = self.step.device
+        device = self.steps.device
         trainable_unets = self.imagen.unets
         self.imagen.unets = self.unets                  # swap in exponential moving averaged unets for sampling
 
