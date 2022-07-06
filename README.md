@@ -291,6 +291,8 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 - <a href="https://github.com/KhrulkovV">Valentin</a> for pointing out insufficient skip connections in the unet, as well as the specific method of attention conditioning in the base-unet in the appendix
 
+- <a href="https://github.com/BIGJUN777">BIGJUN</a> for catching a big bug with continuous time gaussian diffusion noise level conditioning at inference time
+
 - You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
 
 

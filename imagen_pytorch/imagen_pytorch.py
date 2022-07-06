@@ -287,7 +287,7 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         self.num_timesteps = timesteps
 
     def get_times(self, batch_size, noise_level, *, device):
-        return torch.full((batch_size,), noise_level, device = device, dtype = torch.long)
+        return torch.full((batch_size,), noise_level, device = device, dtype = torch.float32)
 
     def sample_random_times(self, batch_size, max_thres = 0.999, *, device):
         return torch.zeros((batch_size,), device = device).float().uniform_(0, max_thres)
