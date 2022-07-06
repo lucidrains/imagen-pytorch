@@ -1326,6 +1326,31 @@ class Unet(nn.Module):
         unet.load_state_dict(state_dict)
         return unet
 
+    # methods for persisting unet to disk
+
+    def persist_to_file(self, path):
+        path = Path(path)
+        path.parents[0].mkdir(exist_ok = True, parents = True)
+
+        config, state_dict = self.to_config_and_state_dict()
+        pkg = dict(config = config, state_dict = state_dict)
+        torch.save(pkg, str(path))
+
+    # class method for rehydrating the unet from its config and state dict
+
+    @classmethod
+    def hydrate_from_file(klass, path):
+        path = Path(path)
+        assert path.exists()
+        pkg = torch.load(str(path))
+
+        assert 'config' in pkg and 'state_dict'in pkg
+        config, state_dict = pkg['config'], pkg['state_dict']
+
+        return Unet.from_config_and_state_dict(config, state_dict)
+
+    # forward with classifier free guidance
+
     def forward_with_cond_scale(
         self,
         *args,
