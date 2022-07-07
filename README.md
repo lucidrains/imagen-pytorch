@@ -221,6 +221,18 @@ for u in (1, 2):
 images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 ```
 
+At any time you can save and load the trainer and all associated states with the `save` and `load` methods. It is recommended you use these methods instead of manually saving with a `state_dict` call, as there are some device memory management being done underneath the hood within the trainer.
+
+ex.
+
+```python
+trainer.save('./path/to/checkpoint.pt')
+
+trainer.load('./path/to/checkpoint.pt')
+
+trainer.steps # (2,) step number for each of the unets, in this case 2
+```
+
 ## Experimental
 
 <a href="https://research.nvidia.com/person/tero-karras">Tero Karras</a> of StyleGAN fame has written a <a href="https://arxiv.org/abs/2206.00364">new paper</a> with results that have been corroborated by a number of independent researchers as well as on my own machine. I have decided to create a version of `Imagen`, the `ElucidatedImagen`, so that one can use the new elucidated DDPM for text-guided cascading generation.

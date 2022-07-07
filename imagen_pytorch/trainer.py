@@ -76,7 +76,7 @@ def num_to_groups(num, divisor):
 def cast_torch_tensor(fn):
     @wraps(fn)
     def inner(model, *args, **kwargs):
-        device = kwargs.pop('_device', next(model.parameters()).device)
+        device = kwargs.pop('_device', model.device)
         cast_device = kwargs.pop('_cast_device', True)
 
         kwargs_keys = kwargs.keys()
@@ -192,6 +192,7 @@ class ImagenTrainer(nn.Module):
 
         self.use_ema = use_ema
         self.ema_unets = nn.ModuleList([])
+        self.ema_unet_being_trained_index = -1 # keeps track of which ema unet is being trained on
 
         self.amp = amp
 
@@ -238,10 +239,16 @@ class ImagenTrainer(nn.Module):
 
         self.to(next(imagen.parameters()).device)
 
+    @property
+    def device(self):
+        return self.steps.device
+
     def save(self, path, overwrite = True, **kwargs):
         path = Path(path)
         assert not (path.exists() and not overwrite)
         path.parent.mkdir(parents = True, exist_ok = True)
+
+        self.reset_ema_unets_all_one_device()
 
         save_obj = dict(
             model = self.imagen.state_dict(),
@@ -277,6 +284,8 @@ class ImagenTrainer(nn.Module):
     def load(self, path, only_model = False, strict = True):
         path = Path(path)
         assert path.exists()
+
+        self.reset_ema_unets_all_one_device()
 
         loaded_obj = torch.load(str(path))
 
@@ -319,6 +328,49 @@ class ImagenTrainer(nn.Module):
     def unets(self):
         return nn.ModuleList([ema.ema_model for ema in self.ema_unets])
 
+    def get_ema_unet(self, unet_number):
+        if not self.use_ema:
+            return
+
+        assert 0 < unet_number <= len(self.ema_unets)
+        index = unet_number - 1
+
+        if isinstance(self.unets, nn.ModuleList):
+            unets_list = [unet for unet in self.ema_unets]
+            delattr(self, 'ema_unets')
+            self.ema_unets = unets_list
+
+        if index != self.ema_unet_being_trained_index:
+            for unet_index, unet in enumerate(self.ema_unets):
+                unet.to(self.device if unet_index == index else 'cpu')
+
+        self.ema_unet_being_trained_index = index
+        return self.ema_unets[index]
+
+    def reset_ema_unets_all_one_device(self, device = None):
+        if not self.use_ema:
+            return
+
+        device = default(device, self.device)
+        self.ema_unets = nn.ModuleList([*self.ema_unets])
+        self.ema_unets.to(device)
+
+        self.ema_unet_being_trained_index = -1
+
+    def print_unet_devices(self):
+        print('unet devices:')
+        for i, unet in enumerate(self.imagen.unets):
+            device = next(unet.parameters()).device
+            print(f'\tunet {i}: {device}')
+
+        if not self.use_ema:
+            return
+
+        print('\nema unet devices:')
+        for i, ema_unet in enumerate(self.ema_unets):
+            device = next(ema_unet.parameters()).device
+            print(f'\tema unet {i}: {device}')
+
     def scale(self, loss, *, unet_number):
         assert 1 <= unet_number <= self.num_unets
         index = unet_number - 1
@@ -348,7 +400,7 @@ class ImagenTrainer(nn.Module):
         optimizer.zero_grad()
 
         if self.use_ema:
-            ema_unet = self.ema_unets[index]
+            ema_unet = self.get_ema_unet(unet_number)
             ema_unet.update()
 
         # scheduler, if needed
@@ -366,6 +418,9 @@ class ImagenTrainer(nn.Module):
     def sample(self, *args, **kwargs):
         if kwargs.pop('use_non_ema', False) or not self.use_ema:
             return self.imagen.sample(*args, **kwargs)
+
+        self.reset_ema_unets_all_one_device()
+        self.imagen.reset_unets_all_one_device()
 
         device = self.steps.device
         trainable_unets = self.imagen.unets

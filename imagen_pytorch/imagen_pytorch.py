@@ -1693,6 +1693,7 @@ class Imagen(nn.Module):
         # construct unets
 
         self.unets = nn.ModuleList([])
+        self.unet_being_trained_index = -1 # keeps track of which unet is being trained at the moment
 
         for ind, one_unet in enumerate(unets):
             assert isinstance(one_unet, Unet)
@@ -1762,14 +1763,32 @@ class Imagen(nn.Module):
     def get_unet(self, unet_number):
         assert 0 < unet_number <= len(self.unets)
         index = unet_number - 1
+
+        if isinstance(self.unets, nn.ModuleList):
+            unets_list = [unet for unet in self.unets]
+            delattr(self, 'unets')
+            self.unets = unets_list
+
+        if index != self.unet_being_trained_index:
+            for unet_index, unet in enumerate(self.unets):
+                unet.to(self.device if unet_index == index else 'cpu')
+
+        self.unet_being_trained_index = index
         return self.unets[index]
+
+    def reset_unets_all_one_device(self, device = None):
+        device = default(device, self.device)
+        self.unets = nn.ModuleList([*self.unets])
+        self.unets.to(device)
+
+        self.unet_being_trained_index = -1
 
     @contextmanager
     def one_unet_in_gpu(self, unet_number = None, unet = None):
         assert exists(unet_number) ^ exists(unet)
 
         if exists(unet_number):
-            unet = self.get_unet(unet_number)
+            unet = self.unets[unet_number - 1]
 
         self.cuda()
 
@@ -1781,6 +1800,18 @@ class Imagen(nn.Module):
 
         for unet, device in zip(self.unets, devices):
             unet.to(device)
+
+    # overriding state dict functions
+
+    def state_dict(self, *args, **kwargs):
+        self.reset_unets_all_one_device()
+        return super().state_dict(*args, **kwargs)
+
+    def load_state_dict(self, *args, **kwargs):
+        self.reset_unets_all_one_device()
+        return super().load_state_dict(*args, **kwargs)
+
+    # gaussian diffusion methods
 
     def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, cond_images = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None, pred_objective = 'noise', dynamic_threshold = True):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
@@ -1869,6 +1900,7 @@ class Imagen(nn.Module):
         device = None,
     ):
         device = default(device, lambda: next(self.parameters()).device)
+        self.reset_unets_all_one_device(device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)

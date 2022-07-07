@@ -116,6 +116,7 @@ class ElucidatedImagen(nn.Module):
         # construct unets
 
         self.unets = nn.ModuleList([])
+        self.unet_being_trained_index = -1 # keeps track of which unet is being trained at the moment
 
         for ind, one_unet in enumerate(unets):
             assert isinstance(one_unet, Unet)
@@ -197,14 +198,32 @@ class ElucidatedImagen(nn.Module):
     def get_unet(self, unet_number):
         assert 0 < unet_number <= len(self.unets)
         index = unet_number - 1
+
+        if isinstance(self.unets, nn.ModuleList):
+            unets_list = [unet for unet in self.unets]
+            delattr(self, 'unets')
+            self.unets = unets_list
+
+        if index != self.unet_being_trained_index:
+            for unet_index, unet in enumerate(self.unets):
+                unet.to(self.device if unet_index == index else 'cpu')
+
+        self.unet_being_trained_index = index
         return self.unets[index]
+
+    def reset_unets_all_one_device(self, device = None):
+        device = default(device, self.device)
+        self.unets = nn.ModuleList([*self.unets])
+        self.unets.to(device)
+
+        self.unet_being_trained_index = -1
 
     @contextmanager
     def one_unet_in_gpu(self, unet_number = None, unet = None):
         assert exists(unet_number) ^ exists(unet)
 
         if exists(unet_number):
-            unet = self.get_unet(unet_number)
+            unet = self.unets[unet_number - 1]
 
         self.cuda()
 
@@ -216,6 +235,16 @@ class ElucidatedImagen(nn.Module):
 
         for unet, device in zip(self.unets, devices):
             unet.to(device)
+
+    # overriding state dict functions
+
+    def state_dict(self, *args, **kwargs):
+        self.reset_unets_all_one_device()
+        return super().state_dict(*args, **kwargs)
+
+    def load_state_dict(self, *args, **kwargs):
+        self.reset_unets_all_one_device()
+        return super().load_state_dict(*args, **kwargs)
 
     # dynamic thresholding
 
@@ -402,6 +431,7 @@ class ElucidatedImagen(nn.Module):
         device = None,
     ):
         device = default(device, lambda: next(self.parameters()).device)
+        self.reset_unets_all_one_device(device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name)
