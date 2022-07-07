@@ -1793,11 +1793,9 @@ class Imagen(nn.Module):
         if exists(unet_number):
             unet = self.unets[unet_number - 1]
 
-        self.cuda()
-
         devices = [module_device(unet) for unet in self.unets]
         self.unets.cpu()
-        unet.cuda()
+        unet.to(self.device)
 
         yield
 
