@@ -156,6 +156,7 @@ class ElucidatedImagen(nn.Module):
 
         self.normalize_img = normalize_neg_one_to_one if auto_normalize_img else identity
         self.unnormalize_img = unnormalize_zero_to_one if auto_normalize_img else identity
+        self.input_image_range = (0. if auto_normalize_img else -1., 1.)
 
         # dynamic thresholding
 
@@ -511,8 +512,8 @@ class ElucidatedImagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(images, prev_image_size)
-            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
+            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(batch_size, device = device)

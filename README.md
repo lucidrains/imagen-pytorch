@@ -287,7 +287,7 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 - <a href="https://github.com/marunine">Marunine</a> for providing a <a href="https://github.com/lucidrains/imagen-pytorch/issues/72#issuecomment-1163275757">potential solution</a> for a color shifting issue in the memory efficient u-nets. Thanks to <a href="https://github.com/jacobwjs">Jacob</a> for sharing experimental comparisons between the base and memory-efficient unets
 
-- <a href="https://github.com/marunine">Marunine</a> for finding numerous bugs, and for sharing his experimental configurations and results
+- <a href="https://github.com/marunine">Marunine</a> for finding numerous bugs, resolving an issue with resize right, and for sharing his experimental configurations and results
 
 - <a href="https://github.com/KhrulkovV">Valentin</a> for pointing out insufficient skip connections in the unet, as well as the specific method of attention conditioning in the base-unet in the appendix
 

@@ -109,14 +109,19 @@ def masked_mean(t, *, dim, mask = None):
 
     return masked_t.sum(dim = dim) / denom.clamp(min = 1e-5)
 
-def resize_image_to(image, target_image_size):
+def resize_image_to(image, target_image_size, clamp_range = None):
     orig_image_size = image.shape[-1]
 
     if orig_image_size == target_image_size:
         return image
 
     scale_factors = target_image_size / orig_image_size
-    return resize(image, scale_factors = scale_factors)
+    out = resize(image, scale_factors = scale_factors)
+
+    if exists(clamp_range):
+        out = out.clamp(*clamp_range)
+
+    return out
 
 # image normalization functions
 # ddpms expect images to be in the range of -1 to 1
@@ -1728,6 +1733,7 @@ class Imagen(nn.Module):
 
         self.normalize_img = normalize_neg_one_to_one if auto_normalize_img else identity
         self.unnormalize_img = unnormalize_zero_to_one if auto_normalize_img else identity
+        self.input_image_range = (0. if auto_normalize_img else -1., 1.)
 
         # dynamic thresholding
 
@@ -2024,8 +2030,8 @@ class Imagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(images, prev_image_size)
-            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size)
+            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(b, device = device)
