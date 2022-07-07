@@ -180,6 +180,7 @@ class ImagenTrainer(nn.Module):
         group_wd_params = True,
         warmup_steps = None,
         cosine_decay_max_steps = None,
+        only_train_unet_number = None,
         **kwargs
     ):
         super().__init__()
@@ -192,7 +193,11 @@ class ImagenTrainer(nn.Module):
 
         self.use_ema = use_ema
         self.ema_unets = nn.ModuleList([])
+
         self.ema_unet_being_trained_index = -1 # keeps track of which ema unet is being trained on
+
+        self.only_train_unet_number = only_train_unet_number # for distributed training, we'll lock training for only one unet at a time, for simplicity
+        self.imagen.only_train_unet_number = only_train_unet_number
 
         self.amp = amp
 
@@ -446,6 +451,8 @@ class ImagenTrainer(nn.Module):
     ):
         if self.num_unets == 1:
             unet_number = default(unet_number, 1)
+
+        assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, f'you can only train unet #{self.only_train_unet_number}'
 
         total_loss = 0.
 

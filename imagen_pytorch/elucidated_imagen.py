@@ -74,6 +74,7 @@ class ElucidatedImagen(nn.Module):
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
+        only_train_unet_number = None,
         lowres_noise_schedule = 'linear',
         num_sample_steps = 32,                      # number of sampling steps
         sigma_min = 0.002,                          # min noise level
@@ -516,6 +517,8 @@ class ElucidatedImagen(nn.Module):
     ):
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
         unet_number = default(unet_number, 1)
+        assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, 'you can only train on unet #{self.only_train_unet_number}'
+
         unet_index = unet_number - 1
         
         unet = self.get_unet(unet_number)

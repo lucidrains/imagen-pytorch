@@ -1626,6 +1626,7 @@ class Imagen(nn.Module):
         p2_loss_weight_k = 1,
         dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
+        only_train_unet_number = None
     ):
         super().__init__()
 
@@ -1693,7 +1694,9 @@ class Imagen(nn.Module):
         # construct unets
 
         self.unets = nn.ModuleList([])
+
         self.unet_being_trained_index = -1 # keeps track of which unet is being trained at the moment
+        self.only_train_unet_number = only_train_unet_number
 
         for ind, one_unet in enumerate(unets):
             assert isinstance(one_unet, Unet)
@@ -2033,6 +2036,8 @@ class Imagen(nn.Module):
     ):
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
         unet_number = default(unet_number, 1)
+        assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, 'you can only train on unet #{self.only_train_unet_number}'
+
         unet_index = unet_number - 1
         
         unet = self.get_unet(unet_number)
