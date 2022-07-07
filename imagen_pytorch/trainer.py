@@ -246,7 +246,7 @@ class ImagenTrainer(nn.Module):
         save_obj = dict(
             model = self.imagen.state_dict(),
             version = __version__,
-            step = self.step.cpu(),
+            step = self.steps.cpu(),
             **kwargs
         )
 
