@@ -246,7 +246,7 @@ class ImagenTrainer(nn.Module):
         save_obj = dict(
             model = self.imagen.state_dict(),
             version = __version__,
-            step = self.step.cpu(),
+            steps = self.steps.cpu(),
             **kwargs
         )
 
@@ -280,11 +280,11 @@ class ImagenTrainer(nn.Module):
 
         loaded_obj = torch.load(str(path))
 
-        if version.parse(__version__) != loaded_obj['version']:
+        if version.parse(__version__) != version.parse(loaded_obj['version']):
             print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
 
         self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
-        self.step.copy_(loaded_obj['step'])
+        self.steps.copy_(loaded_obj['steps'])
 
         if only_model:
             return loaded_obj
