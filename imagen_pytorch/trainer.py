@@ -187,6 +187,8 @@ class ImagenTrainer(nn.Module):
         warmup_steps = None,
         cosine_decay_max_steps = None,
         only_train_unet_number = None,
+        train_dl = None,
+        valid_dl = None,
         dl_tuple_output_keywords_names = ('images', 'text_embeds', 'text_masks', 'cond_images'),
         **kwargs
     ):
@@ -210,10 +212,10 @@ class ImagenTrainer(nn.Module):
 
         # data related functions
 
-        self.train_dl = None
+        self.train_dl = train_dl
         self.train_dl_iter = None
 
-        self.valid_dl = None
+        self.valid_dl = valid_dl
         self.valid_dl_iter = None
 
         self.dl_tuple_output_keywords_names = dl_tuple_output_keywords_names
