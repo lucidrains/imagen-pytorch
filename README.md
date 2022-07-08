@@ -265,7 +265,7 @@ ex. unconditional training
 
 ```python
 import torch
-from imagen_pytorch import Unet, Imagen, SRUnet256, ImagenTrainer
+from imagen_pytorch import Unet, Imagen, ImagenTrainer
 from imagen_pytorch.data import get_images_dataloader
 
 # unets for unconditional imagen
