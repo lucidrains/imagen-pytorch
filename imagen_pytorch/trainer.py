@@ -297,9 +297,11 @@ class ImagenTrainer(nn.Module):
 
         self.valid_dl_iter = cycle(self.valid_dl)
 
-    def train_step(self, **kwargs):
+    def train_step(self, unet_number = None, **kwargs):
         self.create_train_iter()
-        return self.step_with_dl_iter(self.train_dl_iter, **kwargs)
+        loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, *kwargs)
+        self.update(unet_number = unet_number)
+        return loss
 
     @torch.no_grad()
     @eval_decorator
