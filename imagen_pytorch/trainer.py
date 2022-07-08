@@ -267,6 +267,13 @@ class ImagenTrainer(nn.Module):
     def device(self):
         return self.steps.device
 
+    def get_unet_number(self, unet_number = None):
+        if self.num_unets == 1:
+            unet_number = default(unet_number, 1)
+
+        assert 0 < unet_number <= self.num_unets, f'unet number should be in between 1 and {self.num_unets}'
+        return unet_number
+
     def num_steps_taken(self, unet_number = None):
         if self.num_unets == 1:
             unet_number = default(unet_number, 1)
@@ -411,11 +418,11 @@ class ImagenTrainer(nn.Module):
     def unets(self):
         return nn.ModuleList([ema.ema_model for ema in self.ema_unets])
 
-    def get_ema_unet(self, unet_number):
+    def get_ema_unet(self, unet_number = None):
         if not self.use_ema:
             return
 
-        assert 0 < unet_number <= len(self.ema_unets)
+        unet_number = self.get_unet_number(unet_number)
         index = unet_number - 1
 
         if isinstance(self.unets, nn.ModuleList):
@@ -498,10 +505,7 @@ class ImagenTrainer(nn.Module):
         return scaler.scale(loss)
 
     def update(self, unet_number = None):
-        if self.num_unets == 1:
-            unet_number = default(unet_number, 1)
-
-        assert exists(unet_number) and 1 <= unet_number <= self.num_unets
+        unet_number = self.get_unet_number(unet_number)
         index = unet_number - 1
         unet = self.imagen.unets[index]
 
@@ -551,8 +555,7 @@ class ImagenTrainer(nn.Module):
         max_batch_size = None,
         **kwargs
     ):
-        if self.num_unets == 1:
-            unet_number = default(unet_number, 1)
+        unet_number = self.get_unet_number(unet_number)
 
         assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, f'you can only train unet #{self.only_train_unet_number}'
 
