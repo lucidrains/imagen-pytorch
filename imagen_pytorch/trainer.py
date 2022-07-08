@@ -2,7 +2,7 @@ import time
 import copy
 from pathlib import Path
 from math import ceil
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from functools import partial, wraps
 from collections.abc import Iterable
 
@@ -17,6 +17,7 @@ import pytorch_warmup as warmup
 
 from imagen_pytorch.imagen_pytorch import Imagen
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
+from imagen_pytorch.data import cycle
 
 from imagen_pytorch.version import __version__
 from packaging import version
@@ -35,10 +36,6 @@ def default(val, d):
 
 def cast_tuple(val, length = 1):
     return val if isinstance(val, tuple) else ((val,) * length)
-
-@contextmanager
-def null_context(*args, **kwargs):
-    yield
 
 def pick_and_pop(keys, d):
     values = list(map(lambda key: d.pop(key), keys))
@@ -72,6 +69,15 @@ def num_to_groups(num, divisor):
     return arr
 
 # decorators
+
+def eval_decorator(fn):
+    def inner(model, *args, **kwargs):
+        was_training = model.training
+        model.eval()
+        out = fn(model, *args, **kwargs)
+        model.train(was_training)
+        return out
+    return inner
 
 def cast_torch_tensor(fn):
     @wraps(fn)
@@ -181,6 +187,7 @@ class ImagenTrainer(nn.Module):
         warmup_steps = None,
         cosine_decay_max_steps = None,
         only_train_unet_number = None,
+        dl_tuple_output_keywords_names = ('images', 'text_embeds', 'text_masks', 'cond_images'),
         **kwargs
     ):
         super().__init__()
@@ -200,6 +207,16 @@ class ImagenTrainer(nn.Module):
         self.imagen.only_train_unet_number = only_train_unet_number
 
         self.amp = amp
+
+        # data related functions
+
+        self.train_dl = None
+        self.train_dl_iter = None
+
+        self.valid_dl = None
+        self.valid_dl_iter = None
+
+        self.dl_tuple_output_keywords_names = dl_tuple_output_keywords_names
 
         # be able to finely customize learning rate, weight decay
         # per unet
@@ -247,6 +264,56 @@ class ImagenTrainer(nn.Module):
     @property
     def device(self):
         return self.steps.device
+
+    def num_steps_taken(self, unet_number = None):
+        if self.num_unets == 1:
+            unet_number = default(unet_number, 1)
+
+        return self.steps[unet_number - 1].item()
+
+    # data related functions
+
+    def add_train_dataloader(self, dl):
+        assert not exists(self.train_dl), 'training dataloader was already added'
+        self.train_dl = dl
+
+    def add_valid_dataloader(self, dl):
+        assert not exists(self.valid_dl), 'validation dataloader was already added'
+        self.valid_dl = dl
+
+    def create_train_iter(self):
+        assert exists(self.train_dl)
+
+        if exists(self.train_dl_iter):
+            return
+
+        self.train_dl_iter = cycle(self.train_dl)
+
+    def create_valid_iter(self):
+        assert exists(self.valid_dl)
+
+        if exists(self.valid_dl_iter):
+            return
+
+        self.valid_dl_iter = cycle(self.valid_dl)
+
+    def train_step(self, **kwargs):
+        self.create_train_iter()
+        return self.step_with_dl_iter(self.train_dl_iter, **kwargs)
+
+    @torch.no_grad()
+    @eval_decorator
+    def valid_step(self, **kwargs):
+        self.create_valid_iter()
+        return self.step_with_dl_iter(self.valid_dl_iter, **kwargs)
+
+    def step_with_dl_iter(self, dl_iter, **kwargs):
+        dl_tuple_output = cast_tuple(next(dl_iter))
+        model_input = dict(list(zip(self.dl_tuple_output_keywords_names, dl_tuple_output)))
+        loss = self.forward(**{**kwargs, **model_input})
+        return loss
+
+    # saving and loading functions
 
     def save(self, path, overwrite = True, **kwargs):
         path = Path(path)
@@ -329,6 +396,8 @@ class ImagenTrainer(nn.Module):
 
         return loaded_obj
 
+    # managing ema unets and their devices
+
     @property
     def unets(self):
         return nn.ModuleList([ema.ema_model for ema in self.ema_unets])
@@ -376,6 +445,8 @@ class ImagenTrainer(nn.Module):
             device = next(ema_unet.parameters()).device
             print(f'\tema unet {i}: {device}')
 
+    # forwarding functions and gradient step updates
+
     def scale(self, loss, *, unet_number):
         assert 1 <= unet_number <= self.num_unets
         index = unet_number - 1
@@ -409,7 +480,7 @@ class ImagenTrainer(nn.Module):
             ema_unet.update()
 
         # scheduler, if needed
-        maybe_warmup_context = null_context() if not exists(warmup_scheduler) else warmup_scheduler.dampening()
+        maybe_warmup_context = nullcontext() if not exists(warmup_scheduler) else warmup_scheduler.dampening()
 
         with maybe_warmup_context:
             if exists(scheduler):
@@ -426,6 +497,8 @@ class ImagenTrainer(nn.Module):
 
         self.reset_ema_unets_all_one_device()
         self.imagen.reset_unets_all_one_device()
+
+        self.unets.eval()
 
         device = self.steps.device
         trainable_unets = self.imagen.unets

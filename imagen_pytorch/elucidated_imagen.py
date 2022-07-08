@@ -1,5 +1,5 @@
 from math import sqrt
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import List
 from collections import namedtuple
 from tqdm import tqdm
@@ -18,7 +18,6 @@ from imagen_pytorch.imagen_pytorch import (
     exists,
     identity,
     maybe,
-    null_context,
     default,
     cast_tuple,
     eval_decorator,
@@ -452,7 +451,7 @@ class ElucidatedImagen(nn.Module):
 
         for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding)):
 
-            context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
+            context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
             with context:
                 lowres_cond_img = lowres_noise_times = None

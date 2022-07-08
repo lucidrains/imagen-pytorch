@@ -3,7 +3,7 @@ import copy
 from typing import List
 from tqdm import tqdm
 from functools import partial, wraps
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from collections import namedtuple
 from pathlib import Path
 
@@ -56,10 +56,6 @@ def cast_tuple(val, length = None):
 
 def module_device(module):
     return next(module.parameters()).device
-
-@contextmanager
-def null_context(*args, **kwargs):
-    yield
 
 def eval_decorator(fn):
     def inner(model, *args, **kwargs):
@@ -1923,7 +1919,7 @@ class Imagen(nn.Module):
 
         for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding)):
 
-            context = self.one_unet_in_gpu(unet = unet) if is_cuda else null_context()
+            context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
             with context:
                 lowres_cond_img = lowres_noise_times = None
