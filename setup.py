@@ -26,6 +26,7 @@ setup(
     'denoising-diffusion'
   ],
   install_requires=[
+    'accelerate',
     'click',
     'einops>=0.4',
     'einops-exts',

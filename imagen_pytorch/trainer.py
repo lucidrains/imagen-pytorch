@@ -26,6 +26,8 @@ import numpy as np
 
 from ema_pytorch import EMA
 
+from accelerate import Accelerator
+
 # helper functions
 
 def exists(val):
