@@ -291,7 +291,7 @@ class ImagenTrainer(nn.Module):
         self.valid_dl = dl
 
     def create_train_iter(self):
-        assert exists(self.train_dl)
+        assert exists(self.train_dl), 'training dataloader has not been registered with the trainer yet'
 
         if exists(self.train_dl_iter):
             return
@@ -299,7 +299,7 @@ class ImagenTrainer(nn.Module):
         self.train_dl_iter = cycle(self.train_dl)
 
     def create_valid_iter(self):
-        assert exists(self.valid_dl)
+        assert exists(self.valid_dl), 'validation dataloader has not been registered with the trainer yet'
 
         if exists(self.valid_dl_iter):
             return
