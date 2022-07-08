@@ -334,13 +334,15 @@ Not at the moment but one will likely be trained and open sourced within the yea
 - [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [x] explore skip layer excitation in unet decoder
-- [ ] pytorch lightning integration
+- [ ] accelerate integration
 - [ ] preencoding of text to memmapped embeddings
 - [ ] build out CLI tool for training, resuming training, and one-line generation of image
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
 - [ ] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
 - [ ] consider unet with attention mediating skip connections https://arxiv.org/abs/2109.04335
 - [ ] if memory efficient unet is defective, consider https://arxiv.org/abs/1906.06148
+- [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
+- [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
 
 ## Citations
 
