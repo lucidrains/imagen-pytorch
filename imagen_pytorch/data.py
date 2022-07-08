@@ -63,7 +63,7 @@ def get_images_dataloader(
     batch_size,
     image_size,
     shuffle = True,
-    cycle_dl = True,
+    cycle_dl = False,
     pin_memory = True
 ):
     ds = Dataset(folder, image_size)
