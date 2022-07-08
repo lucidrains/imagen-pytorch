@@ -313,7 +313,7 @@ for i in range(200000):
 # do the above for many many many many steps
 # now you can sample images unconditionally from the cascading unet(s)
 
-images = trainer.sample(batch_size = 4, max_batch_size = 1) # (16, 3, 128, 128)
+images = trainer.sample(batch_size = 4, max_batch_size = 1) # (4, 3, 128, 128)
 ```
 
 ## Experimental

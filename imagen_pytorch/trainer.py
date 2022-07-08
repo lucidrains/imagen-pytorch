@@ -479,6 +479,16 @@ class ImagenTrainer(nn.Module):
             device = next(ema_unet.parameters()).device
             print(f'\tema unet {i}: {device}')
 
+    # overriding state dict functions
+
+    def state_dict(self, *args, **kwargs):
+        self.reset_ema_unets_all_one_device()
+        return super().state_dict(*args, **kwargs)
+
+    def load_state_dict(self, *args, **kwargs):
+        self.reset_ema_unets_all_one_device()
+        return super().load_state_dict(*args, **kwargs)
+
     # forwarding functions and gradient step updates
 
     def scale(self, loss, *, unet_number):
