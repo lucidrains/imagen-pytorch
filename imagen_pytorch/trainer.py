@@ -309,7 +309,12 @@ class ImagenTrainer(nn.Module):
     @eval_decorator
     def valid_step(self, **kwargs):
         self.create_valid_iter()
-        return self.step_with_dl_iter(self.valid_dl_iter, **kwargs)
+
+        context = self.use_ema_unets if kwargs.pop('use_ema_unets', False) else nullcontext
+
+        with context():
+            loss = self.step_with_dl_iter(self.valid_dl_iter, **kwargs)
+        return loss
 
     def step_with_dl_iter(self, dl_iter, **kwargs):
         dl_tuple_output = cast_tuple(next(dl_iter))
@@ -435,6 +440,31 @@ class ImagenTrainer(nn.Module):
 
         self.ema_unet_being_trained_index = -1
 
+    @torch.no_grad()
+    @contextmanager
+    def use_ema_unets(self):
+        if not self.use_ema:
+            output = yield
+            return output
+
+        self.reset_ema_unets_all_one_device()
+        self.imagen.reset_unets_all_one_device()
+
+        self.unets.eval()
+
+        trainable_unets = self.imagen.unets
+        self.imagen.unets = self.unets                  # swap in exponential moving averaged unets for sampling
+
+        output = yield
+
+        self.imagen.unets = trainable_unets             # restore original training unets
+
+        # cast the ema_model unets back to original device
+        for ema in self.ema_unets:
+            ema.restore_ema_model_device()
+
+        return output
+
     def print_unet_devices(self):
         print('unet devices:')
         for i, unet in enumerate(self.imagen.unets):
@@ -496,25 +526,10 @@ class ImagenTrainer(nn.Module):
     @cast_torch_tensor
     @imagen_sample_in_chunks
     def sample(self, *args, **kwargs):
-        if kwargs.pop('use_non_ema', False) or not self.use_ema:
-            return self.imagen.sample(*args, **kwargs)
+        context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
 
-        self.reset_ema_unets_all_one_device()
-        self.imagen.reset_unets_all_one_device()
-
-        self.unets.eval()
-
-        device = self.steps.device
-        trainable_unets = self.imagen.unets
-        self.imagen.unets = self.unets                  # swap in exponential moving averaged unets for sampling
-
-        output = self.imagen.sample(*args, device = device, **kwargs)
-
-        self.imagen.unets = trainable_unets             # restore original training unets
-
-        # cast the ema_model unets back to original device
-        for ema in self.ema_unets:
-            ema.restore_ema_model_device()
+        with context():
+            output = self.imagen.sample(*args, device = self.device, **kwargs)
 
         return output
 
