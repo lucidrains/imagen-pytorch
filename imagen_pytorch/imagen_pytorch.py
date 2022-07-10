@@ -1896,7 +1896,7 @@ class Imagen(nn.Module):
         return_pil_images = False,
         device = None,
     ):
-        device = default(device, lambda: next(self.parameters()).device)
+        device = default(device, self.device)
         self.reset_unets_all_one_device(device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
