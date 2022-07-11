@@ -435,9 +435,8 @@ class ElucidatedImagen(nn.Module):
             text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
-        text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
-
         if not self.unconditional:
+            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim=-1))
             batch_size = text_embeds.shape[0]
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
