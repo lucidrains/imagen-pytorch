@@ -57,6 +57,11 @@ def cast_tuple(val, length = None):
 def module_device(module):
     return next(module.parameters()).device
 
+def zero_init_(m):
+    nn.init.zeros_(m.weight)
+    if exists(m.bias):
+        nn.init.zeros_(m.bias)
+
 def eval_decorator(fn):
     def inner(model, *args, **kwargs):
         was_training = model.training
@@ -1317,6 +1322,8 @@ class Unet(nn.Module):
 
         final_conv_dim_in = dim if final_resnet_block else final_conv_dim
         self.final_conv = nn.Conv2d(final_conv_dim_in, self.channels_out, final_conv_kernel_size, padding = final_conv_kernel_size // 2)
+
+        zero_init_(self.final_conv)
 
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
