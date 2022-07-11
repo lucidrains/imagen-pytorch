@@ -1068,7 +1068,7 @@ class Unet(nn.Module):
         scale_skip_connection = True,
         final_resnet_block = True,
         final_conv_kernel_size = 3,
-        pixel_shuffle_upsample = False        # may address checkboard artifacts
+        pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
         super().__init__()
 
