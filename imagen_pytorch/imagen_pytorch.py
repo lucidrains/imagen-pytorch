@@ -585,6 +585,36 @@ def Upsample(dim, dim_out = None):
         nn.Conv2d(dim, dim_out, 3, padding = 1)
     )
 
+class PixelShuffleUpsample(nn.Module):
+    """
+    code shared by @MalumaDev at DALLE2-pytorch for addressing checkboard artifacts
+    https://arxiv.org/ftp/arxiv/papers/1707/1707.02937.pdf
+    """
+    def __init__(self, dim, dim_out = None):
+        super().__init__()
+        dim_out = default(dim_out, dim)
+        conv = nn.Conv2d(dim, dim_out * 4, 1)
+
+        self.net = nn.Sequential(
+            conv,
+            nn.SiLU(),
+            nn.PixelShuffle(2)
+        )
+
+        self.init_conv_(conv)
+
+    def init_conv_(self, conv):
+        o, i, h, w = conv.weight.shape
+        conv_weight = torch.empty(o // 4, i, h, w)
+        nn.init.kaiming_uniform_(conv_weight)
+        conv_weight = repeat(conv_weight, 'o ... -> (o 4) ...')
+
+        conv.weight.data.copy_(conv_weight)
+        nn.init.zeros_(conv.bias.data)
+
+    def forward(self, x):
+        return self.net(x)
+
 def Downsample(dim, dim_out = None):
     dim_out = default(dim_out, dim)
     return nn.Conv2d(dim, dim_out, 4, 2, 1)
@@ -1032,7 +1062,8 @@ class Unet(nn.Module):
         use_global_context_attn = True,
         scale_skip_connection = True,
         final_resnet_block = True,
-        final_conv_kernel_size = 3
+        final_conv_kernel_size = 3,
+        pixel_shuffle_upsample = False        # may address checkboard artifacts
     ):
         super().__init__()
 
@@ -1254,6 +1285,10 @@ class Unet(nn.Module):
         self.mid_attn = EinopsToAndFrom('b c h w', 'b (h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
+        # upsample klass
+
+        upsample_klass = Upsample if not pixel_shuffle_upsample else PixelShuffleUpsample
+
         # upsampling layers
 
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
@@ -1268,7 +1303,7 @@ class Unet(nn.Module):
                 ResnetBlock(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
-                Upsample(dim_out, dim_in) if not is_last or memory_efficient else Identity()
+                upsample_klass(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
 
         # whether to do a final residual from initial conv to the final resnet block out
