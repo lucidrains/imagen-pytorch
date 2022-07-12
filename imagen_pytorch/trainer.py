@@ -286,10 +286,6 @@ class ImagenTrainer(nn.Module):
             if exists(unet_warmup_steps):
                 warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period = unet_warmup_steps)
 
-            # wrap with accelerator if needed
-
-            optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
-
             # set on object
 
             setattr(self, f'optim{ind}', optimizer) # cannot use pytorch ModuleList for some reason with optimizers
@@ -354,6 +350,18 @@ class ImagenTrainer(nn.Module):
     def wrap_unet(self, unet_number):
         unet = self.imagen.get_unet(unet_number)
         self.unet_being_trained = self.accelerator.prepare(unet)
+        unet_index = unet_number - 1
+
+        optimizer = getattr(self, f'optim{unet_index}')
+        scheduler = getattr(self, f'scheduler{unet_index}')
+
+        optimizer = self.accelerator.prepare(optimizer)
+
+        if exists(scheduler):
+            scheduler = self.accelerator.prepare(scheduler)
+
+        setattr(self, f'optim{unet_index}', optimizer)
+        setattr(self, f'scheduler{unet_index}', scheduler)
 
     # hacking accelerator due to not having separate gradscaler per optimizer
 
@@ -463,7 +471,7 @@ class ImagenTrainer(nn.Module):
         self.reset_ema_unets_all_one_device()
 
         save_obj = dict(
-            model = self.unwrapped_imagen.state_dict(),
+            model = self.imagen.state_dict(),
             version = __version__,
             steps = self.steps.cpu(),
             **kwargs
@@ -510,7 +518,7 @@ class ImagenTrainer(nn.Module):
         if version.parse(__version__) != version.parse(loaded_obj['version']):
             self.print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
 
-        self.unwrapped_imagen.load_state_dict(loaded_obj['model'], strict = strict)
+        self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
         self.steps.copy_(loaded_obj['steps'])
 
         if only_model:
