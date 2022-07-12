@@ -289,7 +289,7 @@ trainer = ImagenTrainer(imagen).cuda()
 
 # instantiate your dataloader, which returns the necessary inputs to the DDPM as tuple in the order of images, text embeddings, then text masks. in this case, only images is returned as it is unconditional training
 
-train_dl = get_images_dataloader('/home/phil/dl/data/flowers', batch_size = 16, image_size = 128)
+train_dl = get_images_dataloader('/path/to/training/images', batch_size = 16, image_size = 128)
 
 trainer.add_train_dataloader(train_dl)
 
