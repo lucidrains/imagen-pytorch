@@ -266,7 +266,6 @@ You can also rely on the `ImagenTrainer` to automatically train off `DataLoader`
 ex. unconditional training
 
 ```python
-import torch
 from imagen_pytorch import Unet, Imagen, ImagenTrainer
 from imagen_pytorch.data import get_images_dataloader
 
@@ -274,19 +273,18 @@ from imagen_pytorch.data import get_images_dataloader
 
 unet = Unet(
     dim = 32,
-    dim_mults = (1, 2, 4),
-    num_resnet_blocks = 3,
-    layer_attns = (False, True, True),
-    layer_cross_attns = False,
-    use_linear_attn = True
+    dim_mults = (1, 2, 4, 8),
+    num_resnet_blocks = 1,
+    layer_attns = (False, False, False, True),
+    layer_cross_attns = False
 )
 
-# imagen, which contains the unets above (base unet and super resoluting ones)
+# imagen, which contains the unet above
 
 imagen = Imagen(
-    condition_on_text = False,   # this must be set to False for unconditional Imagen
-    unets = (unet,),
-    image_sizes = (128,),
+    condition_on_text = False,  # this must be set to False for unconditional Imagen
+    unets = unet,
+    image_sizes = 128,
     timesteps = 1000
 )
 
@@ -294,20 +292,20 @@ trainer = ImagenTrainer(imagen).cuda()
 
 # instantiate your dataloader, which returns the necessary inputs to the DDPM as tuple in the order of images, text embeddings, then text masks. in this case, only images is returned as it is unconditional training
 
-train_dl = get_images_dataloader('/path/to/train/images', batch_size = 4, image_size = 128)
+train_dl = get_images_dataloader('/home/phil/dl/data/flowers', batch_size = 16, image_size = 128)
 
 trainer.add_train_dataloader(train_dl)
 
-# train each unet in concert, or separately (recommended) to completion
+# working training loop
 
 for i in range(200000):
-    loss = trainer.train_step(unet_number = 1)
+    loss = trainer.train_step(unet_number = 1, max_batch_size = 4)
     print(f'loss: {loss}')
 
-# do the above for many many many many steps
-# now you can sample images unconditionally from the cascading unet(s)
+    if not (i % 100):
+        images = trainer.sample(batch_size = 1, return_pil_images = True) # returns List[Image]
+        images[0].save(f'./sample-{i // 100}.png')
 
-images = trainer.sample(batch_size = 4, max_batch_size = 1) # (4, 3, 128, 128)
 ```
 
 ## Experimental
