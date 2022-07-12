@@ -428,6 +428,8 @@ class ImagenTrainer(nn.Module):
     # saving and loading functions
 
     def save(self, path, overwrite = True, **kwargs):
+        self.accelerator.wait_for_everyone()
+
         if not self.is_local_main_process:
             return
 
