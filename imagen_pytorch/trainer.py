@@ -70,6 +70,21 @@ def num_to_groups(num, divisor):
         arr.append(remainder)
     return arr
 
+def once(fn):
+    called = False
+
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        nonlocal called
+        if called:
+            return
+
+        out = fn(*args, **kwargs)
+
+        called = True
+        return out
+    return inner
+
 # decorators
 
 def eval_decorator(fn):
@@ -333,6 +348,10 @@ class ImagenTrainer(nn.Module):
         if not exists(unet_number):
             return
 
+        self.wrap_unet(unet_number)
+
+    @once
+    def wrap_unet(self, unet_number):
         unet = self.imagen.get_unet(unet_number)
         self.unet_being_trained = self.accelerator.prepare(unet)
 
