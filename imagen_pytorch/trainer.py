@@ -222,8 +222,6 @@ class ImagenTrainer(nn.Module):
 
         # imagen, unets and ema unets
 
-        imagen = self.accelerator.prepare(imagen)
-
         self.imagen = imagen
         self.num_unets = len(self.imagen.unets)
 
@@ -231,12 +229,12 @@ class ImagenTrainer(nn.Module):
         self.ema_unets = nn.ModuleList([])
 
         # keep track of what unet is being trained on
-        # in distributed training, only going to allow 1 unet training at a time
+        # only going to allow 1 unet training at a time
 
         self.ema_unet_being_trained_index = -1 # keeps track of which ema unet is being trained on
 
-        self.only_train_unet_number = only_train_unet_number # for distributed training, we'll lock training for only one unet at a time, for simplicity
-        self.imagen.only_train_unet_number = only_train_unet_number
+        self.only_train_unet_number = only_train_unet_number
+        self.validate_and_set_unet_being_trained(only_train_unet_number)
 
         # data related functions
 
@@ -293,6 +291,8 @@ class ImagenTrainer(nn.Module):
 
         self.max_grad_norm = max_grad_norm
 
+        # step tracker and misc
+
         self.register_buffer('steps', torch.tensor([0] * self.num_unets))
 
         self.verbose = verbose
@@ -301,6 +301,10 @@ class ImagenTrainer(nn.Module):
 
         self.imagen.to(self.device)
         self.to(self.device)
+
+        # wrap model at the very end
+
+        self.imagen = self.accelerator.prepare(imagen)
 
     # computed values
 
@@ -320,10 +324,21 @@ class ImagenTrainer(nn.Module):
     def unwrapped_imagen(self):
         return self.accelerator.unwrap_model(self.imagen)
 
+    # function for allowing only one unet from being trained at a time
+
+    def validate_and_set_unet_being_trained(self, unet_number = None):
+        if exists(unet_number):
+            self.validate_unet_number(unet_number)
+
+        assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, 'you cannot only train on one unet at a time. you will need to save the trainer into a checkpoint, and resume training on a new unet'
+
+        self.only_train_unet_number = unet_number
+        self.imagen.only_train_unet_number = unet_number
+
     # hacking accelerator due to not having separate gradscaler per optimizer
 
     def set_accelerator_scaler(self, unet_number):
-        unet_number = self.get_unet_number(unet_number)
+        unet_number = self.validate_unet_number(unet_number)
         scaler = getattr(self, f'scaler{unet_number - 1}')
 
         self.accelerator.scaler = scaler
@@ -339,7 +354,7 @@ class ImagenTrainer(nn.Module):
 
     # validating the unet number
 
-    def get_unet_number(self, unet_number = None):
+    def validate_unet_number(self, unet_number = None):
         if self.num_unets == 1:
             unet_number = default(unet_number, 1)
 
@@ -515,7 +530,7 @@ class ImagenTrainer(nn.Module):
         if not self.use_ema:
             return
 
-        unet_number = self.get_unet_number(unet_number)
+        unet_number = self.validate_unet_number(unet_number)
         index = unet_number - 1
 
         if isinstance(self.unets, nn.ModuleList):
@@ -597,7 +612,8 @@ class ImagenTrainer(nn.Module):
     # forwarding functions and gradient step updates
 
     def update(self, unet_number = None):
-        unet_number = self.get_unet_number(unet_number)
+        unet_number = self.validate_unet_number(unet_number)
+        self.validate_and_set_unet_being_trained(unet_number)
         self.set_accelerator_scaler(unet_number)
 
         index = unet_number - 1
@@ -649,7 +665,8 @@ class ImagenTrainer(nn.Module):
         max_batch_size = None,
         **kwargs
     ):
-        unet_number = self.get_unet_number(unet_number)
+        unet_number = self.validate_unet_number(unet_number)
+        self.validate_and_set_unet_being_trained(unet_number)
         self.set_accelerator_scaler(unet_number)
 
         assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, f'you can only train unet #{self.only_train_unet_number}'

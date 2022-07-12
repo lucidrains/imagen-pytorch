@@ -171,15 +171,14 @@ images = torch.randn(64, 3, 256, 256).cuda()
 
 # feed images into imagen, training each unet in the cascade
 
-for i in (1, 2):
-    loss = trainer(
-        images,
-        text_embeds = text_embeds,
-        unet_number = i,
-        max_batch_size = 4        # auto divide the batch of 64 up into batch size of 4 and accumulate gradients, so it all fits in memory
-    )
+loss = trainer(
+    images,
+    text_embeds = text_embeds,
+    unet_number = 1,            # training on unet number 1 in this example, but you will have to also save checkpoints and then reload and continue training on unet number 2
+    max_batch_size = 4          # auto divide the batch of 64 up into batch size of 4 and accumulate gradients, so it all fits in memory
+)
 
-    trainer.update(unet_number = i)
+trainer.update(unet_number = i)
 
 # do the above for many many many many steps
 # now you can sample an image based on the text embeddings from the cascading ddpm
@@ -232,11 +231,11 @@ trainer = ImagenTrainer(imagen).cuda()
 
 training_images = torch.randn(4, 3, 256, 256).cuda()
 
-# train each unet in concert, or separately (recommended) to completion
+# train each unet separately
+# in this example, only training on unet number 1
 
-for u in (1, 2):
-    loss = trainer(training_images, unet_number = u)
-    trainer.update(unet_number = u)
+loss = trainer(training_images, unet_number = 1)
+trainer.update(unet_number = u)
 
 # do the above for many many many many steps
 # now you can sample images unconditionally from the cascading unet(s)
