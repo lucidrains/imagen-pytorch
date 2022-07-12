@@ -235,7 +235,7 @@ class ImagenTrainer(nn.Module):
         self.imagen = imagen
         self.num_unets = len(self.imagen.unets)
 
-        self.use_ema = use_ema and self.is_main_process
+        self.use_ema = use_ema and self.is_main
         self.ema_unets = nn.ModuleList([])
 
         # keep track of what unet is being trained on
@@ -319,11 +319,11 @@ class ImagenTrainer(nn.Module):
         return not (self.accelerator.distributed_type == DistributedType.NO and self.accelerator.num_processes == 1)
 
     @property
-    def is_main_process(self):
+    def is_main(self):
         return self.accelerator.is_main_process
 
     @property
-    def is_local_main_process(self):
+    def is_local_main(self):
         return self.accelerator.is_local_main_process
 
     @property
@@ -376,7 +376,7 @@ class ImagenTrainer(nn.Module):
     # helper print
 
     def print(self, msg):
-        if not self.is_main_process:
+        if not self.is_main:
             return
 
         if not self.verbose:
@@ -461,7 +461,7 @@ class ImagenTrainer(nn.Module):
     def save(self, path, overwrite = True, **kwargs):
         self.accelerator.wait_for_everyone()
 
-        if not self.is_local_main_process:
+        if not self.is_local_main:
             return
 
         path = Path(path)
@@ -687,7 +687,7 @@ class ImagenTrainer(nn.Module):
         context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
 
         with context():
-            output = self.imagen.sample(*args, device = self.device, use_tqdm = self.is_main_process, **kwargs)
+            output = self.imagen.sample(*args, device = self.device, use_tqdm = self.is_main, **kwargs)
 
         return output
 
