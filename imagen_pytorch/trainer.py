@@ -320,6 +320,16 @@ class ImagenTrainer(nn.Module):
     def unwrapped_imagen(self):
         return self.accelerator.unwrap_model(self.imagen)
 
+    # hacking accelerator due to not having separate gradscaler per optimizer
+
+    def set_accelerator_scaler(self, unet_number):
+        unet_number = self.get_unet_number(unet_number)
+        scaler = getattr(self, f'scaler{unet_number - 1}')
+
+        self.accelerator.scaler = scaler
+        for optimizer in self.accelerator._optimizers:
+            optimizer.scaler = scaler
+
     # helper print
 
     def print(self, msg):
@@ -588,6 +598,8 @@ class ImagenTrainer(nn.Module):
 
     def update(self, unet_number = None):
         unet_number = self.get_unet_number(unet_number)
+        self.set_accelerator_scaler(unet_number)
+
         index = unet_number - 1
         unet = self.imagen.unets[index]
 
@@ -597,8 +609,6 @@ class ImagenTrainer(nn.Module):
         warmup_scheduler = getattr(self, f'warmup{index}')
 
         # set the grad scaler on the accelerator, since we are managing one per u-net
-
-        self.accelerator.scaler = scaler
 
         if exists(self.max_grad_norm):
             self.accelerator.clip_grad_norm_(unet.parameters(), self.max_grad_norm)
@@ -640,6 +650,7 @@ class ImagenTrainer(nn.Module):
         **kwargs
     ):
         unet_number = self.get_unet_number(unet_number)
+        self.set_accelerator_scaler(unet_number)
 
         assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, f'you can only train unet #{self.only_train_unet_number}'
 
