@@ -308,7 +308,7 @@ class ImagenTrainer(nn.Module):
 
     def train_step(self, unet_number = None, **kwargs):
         self.create_train_iter()
-        loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, *kwargs)
+        loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, **kwargs)
         self.update(unet_number = unet_number)
         return loss
 
