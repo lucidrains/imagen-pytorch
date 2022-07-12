@@ -211,8 +211,6 @@ class ImagenTrainer(nn.Module):
             'kwargs_handlers': [DistributedDataParallelKwargs(find_unused_parameters = True)]
         , **accelerate_kwargs})
 
-        assert not self.is_distributed, 'only single gpu training is allowed at this time'
-
         # grad scaler must be managed outside of accelerator
 
         grad_scaler_enabled = fp16
@@ -299,10 +297,6 @@ class ImagenTrainer(nn.Module):
         self.imagen.to(self.device)
         self.to(self.device)
 
-        # wrap model at the very end
-
-        self.imagen = self.accelerator.prepare(imagen)
-
     # computed values
 
     @property
@@ -339,7 +333,8 @@ class ImagenTrainer(nn.Module):
         if not exists(unet_number):
             return
 
-        self.unet_being_trained = self.imagen.get_unet(unet_number)
+        unet = self.imagen.get_unet(unet_number)
+        self.unet_being_trained = self.accelerator.prepare(unet)
 
     # hacking accelerator due to not having separate gradscaler per optimizer
 
@@ -354,8 +349,12 @@ class ImagenTrainer(nn.Module):
     # helper print
 
     def print(self, msg):
+        if not self.is_main_process:
+            return
+
         if not self.verbose:
             return
+
         return self.accelerator.print(msg)
 
     # validating the unet number
@@ -661,7 +660,7 @@ class ImagenTrainer(nn.Module):
         context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
 
         with context():
-            output = self.imagen.sample(*args, device = self.device, **kwargs)
+            output = self.imagen.sample(*args, device = self.device, use_tqdm = self.is_main_process, **kwargs)
 
         return output
 

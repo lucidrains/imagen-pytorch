@@ -304,6 +304,24 @@ for i in range(200000):
 
 ```
 
+## Multi GPU (preliminary)
+
+Thanks to <a href="https://huggingface.co/docs/accelerate/index">🤗 Accelerate</a>, you can do multi GPU training easily with two steps.
+
+First you need to invoke `accelerate config` in the same directory as your training script (say it is named `train.py`)
+
+```bash
+$ accelerate config
+```
+
+Next, instead of calling `python train.py` as you would for single GPU, you would use the accelerate CLI as so
+
+```bash
+$ accelerate launch train.py
+```
+
+That's it!
+
 ## Experimental
 
 <a href="https://research.nvidia.com/person/tero-karras">Tero Karras</a> of StyleGAN fame has written a <a href="https://arxiv.org/abs/2206.00364">new paper</a> with results that have been corroborated by a number of independent researchers as well as on my own machine. I have decided to create a version of `Imagen`, the `ElucidatedImagen`, so that one can use the new elucidated DDPM for text-guided cascading generation.
@@ -381,7 +399,8 @@ Not at the moment but one will likely be trained and open sourced within the yea
 - [x] make sure cascading ddpm can be trained without text condition, and make sure both continuous and discrete time gaussian diffusion works
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [x] explore skip layer excitation in unet decoder
-- [ ] accelerate integration
+- [x] accelerate integration
+- [ ] knock out any issues that arised from accelerate
 - [ ] preencoding of text to memmapped embeddings
 - [ ] build out CLI tool for training, resuming training, and one-line generation of image
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
