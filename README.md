@@ -235,7 +235,7 @@ training_images = torch.randn(4, 3, 256, 256).cuda()
 # in this example, only training on unet number 1
 
 loss = trainer(training_images, unet_number = 1)
-trainer.update(unet_number = u)
+trainer.update(unet_number = 1)
 
 # do the above for many many many many steps
 # now you can sample images unconditionally from the cascading unet(s)
