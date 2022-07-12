@@ -2071,6 +2071,7 @@ class Imagen(nn.Module):
     def forward(
         self,
         images,
+        unet: Unet = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -2084,7 +2085,7 @@ class Imagen(nn.Module):
 
         unet_index = unet_number - 1
         
-        unet = self.get_unet(unet_number)
+        unet = default(unet, lambda: self.get_unet(unet_number))
 
         noise_scheduler      = self.noise_schedulers[unet_index]
         p2_loss_weight_gamma = self.p2_loss_weight_gamma[unet_index]

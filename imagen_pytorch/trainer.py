@@ -336,6 +336,11 @@ class ImagenTrainer(nn.Module):
         self.only_train_unet_number = unet_number
         self.imagen.only_train_unet_number = unet_number
 
+        if not exists(unet_number):
+            return
+
+        self.unet_being_trained = self.imagen.get_unet(unet_number)
+
     # hacking accelerator due to not having separate gradscaler per optimizer
 
     def set_accelerator_scaler(self, unet_number):
@@ -620,7 +625,7 @@ class ImagenTrainer(nn.Module):
         self.set_accelerator_scaler(unet_number)
 
         index = unet_number - 1
-        unet = self.imagen.unets[index]
+        unet = self.unet_being_trained
 
         optimizer = getattr(self, f'optim{index}')
         scaler = getattr(self, f'scaler{index}')
@@ -678,7 +683,7 @@ class ImagenTrainer(nn.Module):
 
         for chunk_size_frac, (chunked_args, chunked_kwargs) in split_args_and_kwargs(*args, split_size = max_batch_size, **kwargs):
             with self.accelerator.autocast():
-                loss = self.imagen(*chunked_args, unet_number = unet_number, **chunked_kwargs)
+                loss = self.imagen(*chunked_args, unet = self.unet_being_trained, unet_number = unet_number, **chunked_kwargs)
                 loss = loss * chunk_size_frac
 
             total_loss += loss.item()
