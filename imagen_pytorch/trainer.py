@@ -26,6 +26,8 @@ import numpy as np
 
 from ema_pytorch import EMA
 
+from accelerate import Accelerator, DistributedType
+
 # helper functions
 
 def exists(val):
@@ -182,14 +184,16 @@ class ImagenTrainer(nn.Module):
         beta1 = 0.9,
         beta2 = 0.99,
         max_grad_norm = None,
-        amp = False,
         group_wd_params = True,
         warmup_steps = None,
         cosine_decay_max_steps = None,
         only_train_unet_number = None,
         train_dl = None,
         valid_dl = None,
+        fp16 = False,
+        split_batches = True,
         dl_tuple_output_keywords_names = ('images', 'text_embeds', 'text_masks', 'cond_images'),
+        verbose = True,
         **kwargs
     ):
         super().__init__()
@@ -197,28 +201,55 @@ class ImagenTrainer(nn.Module):
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
 
+        # create accelerator instance
+
+        accelerate_kwargs, kwargs = groupby_prefix_and_trim('accelerate_', kwargs)
+
+        self.accelerator = Accelerator(**{
+            'split_batches': split_batches,
+            'mixed_precision': 'fp16' if fp16 else 'no'
+        , **accelerate_kwargs})
+
+        self.single_gpu = self.accelerator.distributed_type == DistributedType.NO and self.accelerator.num_processes == 1
+
+        assert not (not self.single_gpu and not exists(only_train_unet_number)), 'you must set `only_train_unet_number` on your trainer class in a distributed environment, to make sure only one unet is trained at a time - this will be enforced automatically if not set'
+
+        assert self.single_gpu, 'only single gpu training is allowed at this time'
+
+        # grad scaler must be managed outside of accelerator
+
+        grad_scaler_enabled = fp16
+
+        # imagen, unets and ema unets
+
+        imagen = self.accelerator.prepare(imagen)
+
         self.imagen = imagen
         self.num_unets = len(self.imagen.unets)
 
-        self.use_ema = use_ema
+        self.use_ema = use_ema and self.is_main_process
         self.ema_unets = nn.ModuleList([])
+
+        # keep track of what unet is being trained on
+        # in distributed training, only going to allow 1 unet training at a time
 
         self.ema_unet_being_trained_index = -1 # keeps track of which ema unet is being trained on
 
         self.only_train_unet_number = only_train_unet_number # for distributed training, we'll lock training for only one unet at a time, for simplicity
         self.imagen.only_train_unet_number = only_train_unet_number
 
-        self.amp = amp
-
         # data related functions
 
-        self.train_dl = train_dl
         self.train_dl_iter = None
+        self.train_dl = None
 
-        self.valid_dl = valid_dl
         self.valid_dl_iter = None
+        self.valid_dl = None
 
         self.dl_tuple_output_keywords_names = dl_tuple_output_keywords_names
+
+        self.add_train_dataloader(train_dl)
+        self.add_valid_dataloader(valid_dl)
 
         # be able to finely customize learning rate, weight decay
         # per unet
@@ -234,13 +265,10 @@ class ImagenTrainer(nn.Module):
                 **kwargs
             )
 
-            setattr(self, f'optim{ind}', optimizer) # cannot use pytorch ModuleList for some reason with optimizers
-
             if self.use_ema:
                 self.ema_unets.append(EMA(unet, **ema_kwargs))
 
-            scaler = GradScaler(enabled = amp)
-            setattr(self, f'scaler{ind}', scaler)
+            scaler = GradScaler(enabled = grad_scaler_enabled)
 
             scheduler = warmup_scheduler = None
 
@@ -250,6 +278,14 @@ class ImagenTrainer(nn.Module):
             if exists(unet_warmup_steps):
                 warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period = unet_warmup_steps)
 
+            # wrap with accelerator if needed
+
+            optimizer, scheduler = self.accelerator.prepare(optimizer, scheduler)
+
+            # set on object
+
+            setattr(self, f'optim{ind}', optimizer) # cannot use pytorch ModuleList for some reason with optimizers
+            setattr(self, f'scaler{ind}', scaler)
             setattr(self, f'scheduler{ind}', scheduler)
             setattr(self, f'warmup{ind}', warmup_scheduler)
 
@@ -259,13 +295,39 @@ class ImagenTrainer(nn.Module):
 
         self.register_buffer('steps', torch.tensor([0] * self.num_unets))
 
-        # automatic set device to imagen's device, if needed
+        self.verbose = verbose
 
-        self.to(next(imagen.parameters()).device)
+        # automatic set devices based on what accelerator decided
+
+        self.imagen.to(self.device)
+        self.to(self.device)
+
+    # computed values
 
     @property
     def device(self):
-        return self.steps.device
+        return self.accelerator.device
+
+    @property
+    def is_main_process(self):
+        return self.accelerator.is_main_process
+
+    @property
+    def is_local_main_process(self):
+        return self.accelerator.is_local_main_process
+
+    @property
+    def unwrapped_imagen(self):
+        return self.accelerator.unwrap_model(self.imagen)
+
+    # helper print
+
+    def print(self, msg):
+        if not self.verbose:
+            return
+        return self.accelerator.print(msg)
+
+    # validating the unet number
 
     def get_unet_number(self, unet_number = None):
         if self.num_unets == 1:
@@ -273,6 +335,8 @@ class ImagenTrainer(nn.Module):
 
         assert 0 < unet_number <= self.num_unets, f'unet number should be in between 1 and {self.num_unets}'
         return unet_number
+
+    # number of training steps taken
 
     def num_steps_taken(self, unet_number = None):
         if self.num_unets == 1:
@@ -282,13 +346,19 @@ class ImagenTrainer(nn.Module):
 
     # data related functions
 
-    def add_train_dataloader(self, dl):
+    def add_train_dataloader(self, dl = None):
+        if not exists(dl):
+            return
+
         assert not exists(self.train_dl), 'training dataloader was already added'
-        self.train_dl = dl
+        self.train_dl = self.accelerator.prepare(dl)
 
     def add_valid_dataloader(self, dl):
+        if not exists(dl):
+            return
+
         assert not exists(self.valid_dl), 'validation dataloader was already added'
-        self.valid_dl = dl
+        self.valid_dl = self.accelerator.prepare(dl)
 
     def create_train_iter(self):
         assert exists(self.train_dl), 'training dataloader has not been registered with the trainer yet'
@@ -332,6 +402,9 @@ class ImagenTrainer(nn.Module):
     # saving and loading functions
 
     def save(self, path, overwrite = True, **kwargs):
+        if not self.is_local_main_process:
+            return
+
         path = Path(path)
         assert not (path.exists() and not overwrite)
         path.parent.mkdir(parents = True, exist_ok = True)
@@ -339,7 +412,7 @@ class ImagenTrainer(nn.Module):
         self.reset_ema_unets_all_one_device()
 
         save_obj = dict(
-            model = self.imagen.state_dict(),
+            model = self.unwrapped_imagen.state_dict(),
             version = __version__,
             steps = self.steps.cpu(),
             **kwargs
@@ -368,9 +441,15 @@ class ImagenTrainer(nn.Module):
             save_obj = {**save_obj, 'ema': self.ema_unets.state_dict()}
 
         torch.save(save_obj, str(path))
+        self.print(f'checkpoint saved to {str(path)}')
 
-    def load(self, path, only_model = False, strict = True):
+    def load(self, path, only_model = False, strict = True, noop_if_not_exist = False):
         path = Path(path)
+
+        if noop_if_not_exist and not path.exists():
+            self.print(f'trainer checkpoint not found at {str(path)}')
+            return
+
         assert path.exists()
 
         self.reset_ema_unets_all_one_device()
@@ -378,9 +457,9 @@ class ImagenTrainer(nn.Module):
         loaded_obj = torch.load(str(path))
 
         if version.parse(__version__) != version.parse(loaded_obj['version']):
-            print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
+            self.print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
 
-        self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
+        self.unwrapped_imagen.load_state_dict(loaded_obj['model'], strict = strict)
         self.steps.copy_(loaded_obj['steps'])
 
         if only_model:
@@ -403,13 +482,17 @@ class ImagenTrainer(nn.Module):
             if exists(warmup_scheduler):
                 warmup_scheduler.load_state_dict(loaded_obj[warmup_scheduler_key])
 
-            scaler.load_state_dict(loaded_obj[scaler_key])
-            optimizer.load_state_dict(loaded_obj[optimizer_key])
+            try:
+                optimizer.load_state_dict(loaded_obj[optimizer_key])
+                scaler.load_state_dict(loaded_obj[scaler_key])
+            except:
+                self.print('could not load optimizer and scaler, possibly because you have turned on mixed precision training since the last run. resuming with new optimizer and scalers')
 
         if self.use_ema:
             assert 'ema' in loaded_obj
             self.ema_unets.load_state_dict(loaded_obj['ema'], strict = strict)
 
+        self.print(f'checkpoint loaded from {str(path)}')
         return loaded_obj
 
     # managing ema unets and their devices
@@ -473,18 +556,18 @@ class ImagenTrainer(nn.Module):
         return output
 
     def print_unet_devices(self):
-        print('unet devices:')
+        self.print('unet devices:')
         for i, unet in enumerate(self.imagen.unets):
             device = next(unet.parameters()).device
-            print(f'\tunet {i}: {device}')
+            self.print(f'\tunet {i}: {device}')
 
         if not self.use_ema:
             return
 
-        print('\nema unet devices:')
+        self.print('\nema unet devices:')
         for i, ema_unet in enumerate(self.ema_unets):
             device = next(ema_unet.parameters()).device
-            print(f'\tema unet {i}: {device}')
+            self.print(f'\tema unet {i}: {device}')
 
     # overriding state dict functions
 
@@ -503,12 +586,6 @@ class ImagenTrainer(nn.Module):
 
     # forwarding functions and gradient step updates
 
-    def scale(self, loss, *, unet_number):
-        assert 1 <= unet_number <= self.num_unets
-        index = unet_number - 1
-        scaler = getattr(self, f'scaler{index}')
-        return scaler.scale(loss)
-
     def update(self, unet_number = None):
         unet_number = self.get_unet_number(unet_number)
         index = unet_number - 1
@@ -516,16 +593,17 @@ class ImagenTrainer(nn.Module):
 
         optimizer = getattr(self, f'optim{index}')
         scaler = getattr(self, f'scaler{index}')
-
         scheduler = getattr(self, f'scheduler{index}')
         warmup_scheduler = getattr(self, f'warmup{index}')
 
-        if exists(self.max_grad_norm):
-            scaler.unscale_(optimizer)
-            nn.utils.clip_grad_norm_(unet.parameters(), self.max_grad_norm)
+        # set the grad scaler on the accelerator, since we are managing one per u-net
 
-        scaler.step(optimizer)
-        scaler.update()
+        self.accelerator.scaler = scaler
+
+        if exists(self.max_grad_norm):
+            self.accelerator.clip_grad_norm_(unet.parameters(), self.max_grad_norm)
+
+        optimizer.step()
         optimizer.zero_grad()
 
         if self.use_ema:
@@ -533,10 +611,11 @@ class ImagenTrainer(nn.Module):
             ema_unet.update()
 
         # scheduler, if needed
+
         maybe_warmup_context = nullcontext() if not exists(warmup_scheduler) else warmup_scheduler.dampening()
 
         with maybe_warmup_context:
-            if exists(scheduler):
+            if exists(scheduler) and not self.accelerator.optimizer_step_was_skipped: # recommended in the docs
                 scheduler.step()
 
         self.steps += F.one_hot(torch.tensor(unet_number - 1, device = self.steps.device), num_classes = len(self.steps))
@@ -567,13 +646,13 @@ class ImagenTrainer(nn.Module):
         total_loss = 0.
 
         for chunk_size_frac, (chunked_args, chunked_kwargs) in split_args_and_kwargs(*args, split_size = max_batch_size, **kwargs):
-            with autocast(enabled = self.amp):
+            with self.accelerator.autocast():
                 loss = self.imagen(*chunked_args, unet_number = unet_number, **chunked_kwargs)
                 loss = loss * chunk_size_frac
 
             total_loss += loss.item()
 
             if self.training:
-                self.scale(loss, unet_number = unet_number).backward()
+                self.accelerator.backward(loss)
 
         return total_loss
