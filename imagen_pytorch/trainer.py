@@ -26,7 +26,7 @@ import numpy as np
 
 from ema_pytorch import EMA
 
-from accelerate import Accelerator, DistributedType
+from accelerate import Accelerator, DistributedType, DistributedDataParallelKwargs
 
 # helper functions
 
@@ -207,14 +207,11 @@ class ImagenTrainer(nn.Module):
 
         self.accelerator = Accelerator(**{
             'split_batches': split_batches,
-            'mixed_precision': 'fp16' if fp16 else 'no'
+            'mixed_precision': 'fp16' if fp16 else 'no',
+            'kwargs_handlers': [DistributedDataParallelKwargs(find_unused_parameters = True)]
         , **accelerate_kwargs})
 
-        self.single_gpu = self.accelerator.distributed_type == DistributedType.NO and self.accelerator.num_processes == 1
-
-        assert not (not self.single_gpu and not exists(only_train_unet_number)), 'you must set `only_train_unet_number` on your trainer class in a distributed environment, to make sure only one unet is trained at a time - this will be enforced automatically if not set'
-
-        assert self.single_gpu, 'only single gpu training is allowed at this time'
+        assert not self.is_distributed, 'only single gpu training is allowed at this time'
 
         # grad scaler must be managed outside of accelerator
 
@@ -311,6 +308,10 @@ class ImagenTrainer(nn.Module):
     @property
     def device(self):
         return self.accelerator.device
+
+    @property
+    def is_distributed(self):
+        return not (self.accelerator.distributed_type == DistributedType.NO and self.accelerator.num_processes == 1)
 
     @property
     def is_main_process(self):
