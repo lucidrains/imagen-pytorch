@@ -496,6 +496,11 @@ class ImagenTrainer(nn.Module):
         self.reset_ema_unets_all_one_device()
         return super().load_state_dict(*args, **kwargs)
 
+    # encoding text functions
+
+    def encode_text(self, text, **kwargs):
+        return self.imagen.encode_text(text, **kwargs)
+
     # forwarding functions and gradient step updates
 
     def scale(self, loss, *, unet_number):

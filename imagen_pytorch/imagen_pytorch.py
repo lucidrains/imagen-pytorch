@@ -1729,6 +1729,8 @@ class Imagen(nn.Module):
         self.text_encoder_name = text_encoder_name
         self.text_embed_dim = default(text_embed_dim, lambda: get_encoded_dim(text_encoder_name))
 
+        self.encode_text = partial(t5_encode_text, name = text_encoder_name)
+
         # construct unets
 
         self.unets = nn.ModuleList([])
@@ -1942,7 +1944,7 @@ class Imagen(nn.Module):
         self.reset_unets_all_one_device(device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name, return_attn_mask = True)
+            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
         if not self.unconditional:
@@ -2097,7 +2099,7 @@ class Imagen(nn.Module):
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
-            text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name, return_attn_mask = True)
+            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(images.device), (text_embeds, text_masks))
 
         if not self.unconditional:
