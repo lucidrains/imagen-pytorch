@@ -327,8 +327,8 @@ class ImagenTrainer(nn.Module):
         return self.accelerator.is_local_main_process
 
     @property
-    def unwrapped_imagen(self):
-        return self.accelerator.unwrap_model(self.imagen)
+    def unwrapped_unet(self):
+        return self.accelerator.unwrap_model(self.unet_being_trained)
 
     # function for allowing only one unet from being trained at a time
 
