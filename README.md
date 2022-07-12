@@ -178,7 +178,7 @@ loss = trainer(
     max_batch_size = 4          # auto divide the batch of 64 up into batch size of 4 and accumulate gradients, so it all fits in memory
 )
 
-trainer.update(unet_number = i)
+trainer.update(unet_number = 1)
 
 # do the above for many many many many steps
 # now you can sample an image based on the text embeddings from the cascading ddpm
