@@ -1,4 +1,5 @@
 from math import sqrt
+from functools import partial
 from contextlib import contextmanager, nullcontext
 from typing import List
 from collections import namedtuple
@@ -112,6 +113,8 @@ class ElucidatedImagen(nn.Module):
 
         self.text_encoder_name = text_encoder_name
         self.text_embed_dim = default(text_embed_dim, lambda: get_encoded_dim(text_encoder_name))
+
+        self.encode_text = partial(t5_encode_text, name = text_encoder_name)
 
         # construct unets
 
@@ -432,10 +435,11 @@ class ElucidatedImagen(nn.Module):
         self.reset_unets_all_one_device(device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name, return_attn_mask = True)
+            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
-        text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
+        if not self.unconditional:
+            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
 
         if not self.unconditional:
             batch_size = text_embeds.shape[0]
@@ -508,6 +512,7 @@ class ElucidatedImagen(nn.Module):
     def forward(
         self,
         images,
+        unet: Unet = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -521,7 +526,7 @@ class ElucidatedImagen(nn.Module):
 
         unet_index = unet_number - 1
         
-        unet = self.get_unet(unet_number)
+        unet = default(unet, lambda: self.get_unet(unet_number))
 
         target_image_size    = self.image_sizes[unet_index]
         prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
@@ -535,10 +540,11 @@ class ElucidatedImagen(nn.Module):
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
-            text_embeds, text_masks = t5_encode_text(texts, name = self.text_encoder_name, return_attn_mask = True)
+            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(images.device), (text_embeds, text_masks))
 
-        text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
+        if not self.unconditional:
+            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into decoder if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
