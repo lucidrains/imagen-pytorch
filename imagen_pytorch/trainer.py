@@ -70,21 +70,6 @@ def num_to_groups(num, divisor):
         arr.append(remainder)
     return arr
 
-def once(fn):
-    called = False
-
-    @wraps(fn)
-    def inner(*args, **kwargs):
-        nonlocal called
-        if called:
-            return
-
-        out = fn(*args, **kwargs)
-
-        called = True
-        return out
-    return inner
-
 # decorators
 
 def eval_decorator(fn):
@@ -190,7 +175,7 @@ def imagen_sample_in_chunks(fn):
     return inner
 
 class ImagenTrainer(nn.Module):
-    initted = False
+    locked = False
 
     def __init__(
         self,
@@ -214,8 +199,7 @@ class ImagenTrainer(nn.Module):
         **kwargs
     ):
         super().__init__()
-        assert not ImagenTrainer.initted, 'ImagenTrainer can only be initialized once per process - for the sake of distributed training, you will now have to create a separate script to train each unet (or a script that accepts unet number as an argument)'
-        ImagenTrainer.initted = True
+        assert not ImagenTrainer.locked, 'ImagenTrainer can only be initialized once per process - for the sake of distributed training, you will now have to create a separate script to train each unet (or a script that accepts unet number as an argument)'
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
@@ -229,6 +213,8 @@ class ImagenTrainer(nn.Module):
             'mixed_precision': 'fp16' if fp16 else 'no',
             'kwargs_handlers': [DistributedDataParallelKwargs(find_unused_parameters = True)]
         , **accelerate_kwargs})
+
+        ImagenTrainer.locked = self.is_distributed
 
         # grad scaler must be managed outside of accelerator
 
@@ -352,8 +338,10 @@ class ImagenTrainer(nn.Module):
 
         self.wrap_unet(unet_number)
 
-    @once
     def wrap_unet(self, unet_number):
+        if hasattr(self, 'one_unet_wrapped'):
+            return
+
         unet = self.imagen.get_unet(unet_number)
         self.unet_being_trained = self.accelerator.prepare(unet)
         unet_index = unet_number - 1
@@ -368,6 +356,8 @@ class ImagenTrainer(nn.Module):
 
         setattr(self, f'optim{unet_index}', optimizer)
         setattr(self, f'scheduler{unet_index}', scheduler)
+
+        self.one_unet_wrapped = True
 
     # hacking accelerator due to not having separate gradscaler per optimizer
 
