@@ -304,7 +304,7 @@ for i in range(200000):
 
 ```
 
-## Multi GPU (preliminary)
+## Multi GPU
 
 Thanks to <a href="https://huggingface.co/docs/accelerate/index">🤗 Accelerate</a>, you can do multi GPU training easily with two steps.
 
