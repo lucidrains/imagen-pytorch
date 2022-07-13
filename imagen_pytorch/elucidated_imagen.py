@@ -342,6 +342,7 @@ class ElucidatedImagen(nn.Module):
         clamp = True,
         dynamic_threshold = True,
         cond_scale = 1.,
+        use_tqdm = True,
         **kwargs
     ):
         # get specific sampling hyperparameters for unet
@@ -378,7 +379,7 @@ class ElucidatedImagen(nn.Module):
 
         # gradually denoise
 
-        for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc = 'sampling time step'):
+        for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc = 'sampling time step', disable = not use_tqdm):
             sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
 
             eps = hp.S_noise * torch.randn(shape, device = self.device) # stochastic sampling
@@ -429,6 +430,7 @@ class ElucidatedImagen(nn.Module):
         stop_at_unet_number = None,
         return_all_unet_outputs = False,
         return_pil_images = False,
+        use_tqdm = True,
         device = None,
     ):
         device = default(device, self.device)
@@ -455,7 +457,7 @@ class ElucidatedImagen(nn.Module):
 
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
 
-        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding)):
+        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold in tqdm(zip(range(1, len(self.unets) + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding), disable = not use_tqdm):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -481,7 +483,8 @@ class ElucidatedImagen(nn.Module):
                     cond_scale = cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
-                    dynamic_threshold = dynamic_threshold
+                    dynamic_threshold = dynamic_threshold,
+                    use_tqdm = use_tqdm
                 )
 
                 outputs.append(img)
