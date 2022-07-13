@@ -39,6 +39,12 @@ def default(val, d):
 def cast_tuple(val, length = 1):
     return val if isinstance(val, tuple) else ((val,) * length)
 
+def find_first(fn, arr):
+    for ind, el in enumerate(arr):
+        if fn(el):
+            return ind
+    return -1
+
 def pick_and_pop(keys, d):
     values = list(map(lambda key: d.pop(key), keys))
     return dict(zip(keys, values))
@@ -397,6 +403,15 @@ class ImagenTrainer(nn.Module):
 
         return self.steps[unet_number - 1].item()
 
+    def print_untrained_unets(self):
+        for ind, steps in enumerate(self.steps.tolist()):
+            if steps > 0:
+                continue
+            self.print(f'unet {ind + 1} has not been trained')
+
+        if torch.any(self.steps == 0):
+            self.print('when sampling, you can pass stop_at_unet_number to stop early in the cascade, so it does not try to generate with untrained unets')
+
     # data related functions
 
     def add_train_dataloader(self, dl = None):
@@ -681,6 +696,8 @@ class ImagenTrainer(nn.Module):
     @imagen_sample_in_chunks
     def sample(self, *args, **kwargs):
         context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
+
+        self.print_untrained_unets()        
 
         with context():
             output = self.imagen.sample(*args, device = self.device, use_tqdm = self.is_main, **kwargs)
