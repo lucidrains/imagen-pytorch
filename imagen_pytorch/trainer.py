@@ -190,6 +190,8 @@ def imagen_sample_in_chunks(fn):
     return inner
 
 class ImagenTrainer(nn.Module):
+    initted = False
+
     def __init__(
         self,
         imagen,
@@ -212,6 +214,8 @@ class ImagenTrainer(nn.Module):
         **kwargs
     ):
         super().__init__()
+        assert not ImagenTrainer.initted, 'ImagenTrainer can only be initialized once per process - for the sake of distributed training, you will now have to create a separate script to train each unet (or a script that accepts unet number as an argument)'
+        ImagenTrainer.initted = True
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
@@ -242,9 +246,6 @@ class ImagenTrainer(nn.Module):
         # only going to allow 1 unet training at a time
 
         self.ema_unet_being_trained_index = -1 # keeps track of which ema unet is being trained on
-
-        self.only_train_unet_number = only_train_unet_number
-        self.validate_and_set_unet_being_trained(only_train_unet_number)
 
         # data related functions
 
@@ -307,6 +308,11 @@ class ImagenTrainer(nn.Module):
 
         self.imagen.to(self.device)
         self.to(self.device)
+
+        # only allowing training for unet
+
+        self.only_train_unet_number = only_train_unet_number
+        self.validate_and_set_unet_being_trained(only_train_unet_number)
 
     # computed values
 
