@@ -1,5 +1,6 @@
 import torch
 import transformers
+from typing import List
 from transformers import T5Tokenizer, T5EncoderModel, T5Config
 from einops import rearrange
 
@@ -7,6 +8,11 @@ transformers.logging.set_verbosity_error()
 
 def exists(val):
     return val is not None
+
+def default(val, d):
+    if exists(val):
+        return val
+    return d() if callable(d) else d
 
 # config
 
@@ -53,10 +59,9 @@ def get_encoded_dim(name):
 
 # encoding text
 
-def t5_encode_text(
-    texts,
-    name = DEFAULT_T5_NAME,
-    return_attn_mask = False
+def t5_tokenize(
+    texts: List[str],
+    name = DEFAULT_T5_NAME
 ):
     t5, tokenizer = get_model_and_tokenizer(name)
 
@@ -75,18 +80,40 @@ def t5_encode_text(
 
     input_ids = encoded.input_ids.to(device)
     attn_mask = encoded.attention_mask.to(device)
+    return input_ids, attn_mask
+
+def t5_encode_tokenized_text(
+    token_ids,
+    attn_mask = None,
+    pad_id = None,
+    name = DEFAULT_T5_NAME
+):
+    assert exists(attn_mask) or exists(pad_id)
+    t5, tokenizer = get_model_and_tokenizer(name)
+
+    mask = default(attn_mask, lambda: (token_ids != pad_id).long())
 
     t5.eval()
 
     with torch.no_grad():
-        output = t5(input_ids = input_ids, attention_mask = attn_mask)
+        output = t5(input_ids = token_ids, attention_mask = attn_mask)
         encoded_text = output.last_hidden_state.detach()
 
     attn_mask = attn_mask.bool()
 
     encoded_text = encoded_text.masked_fill(~rearrange(attn_mask, '... -> ... 1'), 0.) # just force all embeddings that is padding to be equal to 0.
+    return encoded_text
+
+def t5_encode_text(
+    texts: List[str],
+    name = DEFAULT_T5_NAME,
+    return_attn_mask = False
+):
+    token_ids, attn_mask = t5_tokenize(texts, name = name)
+    encoded_text = t5_encode_tokenized_text(token_ids, attn_mask = attn_mask)
 
     if return_attn_mask:
+        attn_mask = attn_mask.bool()
         return encoded_text, attn_mask
 
     return encoded_text
