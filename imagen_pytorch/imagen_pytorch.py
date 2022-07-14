@@ -13,6 +13,8 @@ from torch import nn, einsum
 from torch.special import expm1
 import torchvision.transforms as T
 
+import kornia.augmentation as K
+
 from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange, Reduce
 from einops_exts import rearrange_many, repeat_many, check_shape
@@ -27,6 +29,11 @@ def exists(val):
 
 def identity(t, *args, **kwargs):
     return t
+
+def first(arr, d = None):
+    if len(arr) == 0:
+        return d
+    return arr[0]
 
 def maybe(fn):
     @wraps(fn)
@@ -1671,6 +1678,7 @@ class Imagen(nn.Module):
         loss_type = 'l2',
         noise_schedules = 'cosine',
         pred_objectives = 'noise',
+        random_crop_sizes = None,
         lowres_noise_schedule = 'linear',
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
@@ -1732,6 +1740,11 @@ class Imagen(nn.Module):
         for timestep, noise_schedule in zip(timesteps, noise_schedules):
             noise_scheduler = noise_scheduler_klass(noise_schedule = noise_schedule, timesteps = timestep)
             self.noise_schedulers.append(noise_scheduler)
+
+        # randomly cropping for upsampler training
+
+        self.random_crop_sizes = cast_tuple(random_crop_sizes, num_unets)
+        assert not exists(first(self.random_crop_sizes)), 'you should not need to randomly crop image during training for base unet, only for upsamplers - so pass in `random_crop_sizes = (None, 128, 256)` as example'
 
         # lowres augmentation noise schedule
 
@@ -2032,13 +2045,24 @@ class Imagen(nn.Module):
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
-    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, cond_images = None, noise = None, times_next = None, pred_objective = 'noise', p2_loss_weight_gamma = 0.):
+    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, cond_images = None, noise = None, times_next = None, pred_objective = 'noise', p2_loss_weight_gamma = 0., random_crop_size = None):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
 
         x_start = self.normalize_img(x_start)
         lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
+
+        # random cropping during training
+        # for upsamplers
+
+        if exists(random_crop_size):
+            aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
+
+            # make sure low res conditioner and image both get augmented the same way
+            # detailed https://kornia.readthedocs.io/en/latest/augmentation.module.html?highlight=randomcrop#kornia.augmentation.RandomCrop
+            x_start = aug(x_start)
+            lowres_cond_img = aug(lowres_cond_img, params = aug._params)
 
         # get x_t
 
@@ -2110,6 +2134,7 @@ class Imagen(nn.Module):
         p2_loss_weight_gamma = self.p2_loss_weight_gamma[unet_index]
         pred_objective       = self.pred_objectives[unet_index]
         target_image_size    = self.image_sizes[unet_index]
+        random_crop_size     = self.random_crop_sizes[unet_index]
         prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
         b, c, h, w, device,  = *images.shape, images.device
 
@@ -2145,4 +2170,4 @@ class Imagen(nn.Module):
 
         images = resize_image_to(images, target_image_size)
 
-        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma)
+        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size)
