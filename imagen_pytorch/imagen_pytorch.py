@@ -18,8 +18,6 @@ from einops.layers.torch import Rearrange, Reduce
 from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
 
-from resize_right import resize
-
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
 # helper functions
@@ -110,14 +108,17 @@ def masked_mean(t, *, dim, mask = None):
 
     return masked_t.sum(dim = dim) / denom.clamp(min = 1e-5)
 
-def resize_image_to(image, target_image_size, clamp_range = None, pad_mode = 'constant'):
+def resize_image_to(
+    image,
+    target_image_size,
+    clamp_range = None
+):
     orig_image_size = image.shape[-1]
 
     if orig_image_size == target_image_size:
         return image
 
-    scale_factors = target_image_size / orig_image_size
-    out = resize(image, scale_factors = scale_factors, pad_mode = pad_mode)
+    out = F.interpolate(image, target_image_size, mode = 'nearest')
 
     if exists(clamp_range):
         out = out.clamp(*clamp_range)
@@ -1978,7 +1979,7 @@ class Imagen(nn.Module):
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
-                    lowres_cond_img = resize_image_to(img, image_size, pad_mode = 'reflect')
+                    lowres_cond_img = resize_image_to(img, image_size)
                     lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 shape = (batch_size, self.channels, image_size, image_size)
@@ -2117,8 +2118,8 @@ class Imagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range, pad_mode = 'reflect')
-            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range, pad_mode = 'reflect')
+            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(b, device = device)

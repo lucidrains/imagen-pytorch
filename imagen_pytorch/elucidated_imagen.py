@@ -468,7 +468,7 @@ class ElucidatedImagen(nn.Module):
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
-                    lowres_cond_img = resize_image_to(img, image_size, pad_mode = 'reflect')
+                    lowres_cond_img = resize_image_to(img, image_size)
                     lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 shape = (batch_size, self.channels, image_size, image_size)
@@ -556,8 +556,8 @@ class ElucidatedImagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range, pad_mode = 'reflect')
-            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range, pad_mode = 'reflect')
+            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(batch_size, device = device)
