@@ -1086,11 +1086,6 @@ class Unet(nn.Module):
         self._locals.pop('self', None)
         self._locals.pop('__class__', None)
 
-        # for eventual cascading diffusion
-
-        self.lowres_cond = lowres_cond
-
-
         # determine dimensions
 
         self.channels = channels
@@ -1322,6 +1317,8 @@ class Unet(nn.Module):
         self.final_res_block = ResnetBlock(final_conv_dim, dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], use_gca = True) if final_resnet_block else None
 
         final_conv_dim_in = dim if final_resnet_block else final_conv_dim
+        final_conv_dim_in += (channels if lowres_cond else 0)
+
         self.final_conv = nn.Conv2d(final_conv_dim_in, self.channels_out, final_conv_kernel_size, padding = final_conv_kernel_size // 2)
 
         zero_init_(self.final_conv)
@@ -1592,6 +1589,9 @@ class Unet(nn.Module):
 
         if exists(self.final_res_block):
             x = self.final_res_block(x, t)
+
+        if exists(lowres_cond_img):
+            x = torch.cat((x, lowres_cond_img), dim = 1)
 
         return self.final_conv(x)
 
