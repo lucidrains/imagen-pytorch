@@ -16,6 +16,7 @@ from imagen_pytorch.imagen_pytorch import (
     GaussianDiffusion,
     GaussianDiffusionContinuousTimes,
     Unet,
+    first,
     exists,
     identity,
     maybe,
@@ -68,6 +69,7 @@ class ElucidatedImagen(nn.Module):
         text_embed_dim = None,
         channels = 3,
         cond_drop_prob = 0.1,
+        random_crop_sizes = None,
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
@@ -104,6 +106,11 @@ class ElucidatedImagen(nn.Module):
 
         unets = cast_tuple(unets)
         num_unets = len(unets)
+
+        # randomly cropping for upsampler training
+
+        self.random_crop_sizes = cast_tuple(random_crop_sizes, num_unets)
+        assert not exists(first(self.random_crop_sizes)), 'you should not need to randomly crop image during training for base unet, only for upsamplers - so pass in `random_crop_sizes = (None, 128, 256)` as example'
 
         # lowres augmentation noise schedule
 
@@ -532,6 +539,7 @@ class ElucidatedImagen(nn.Module):
         unet = default(unet, lambda: self.get_unet(unet_number))
 
         target_image_size    = self.image_sizes[unet_index]
+        random_crop_size     = self.random_crop_sizes[unet_index]
         prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
         hp                   = self.hparams[unet_index]
 
@@ -571,6 +579,17 @@ class ElucidatedImagen(nn.Module):
 
         images = self.normalize_img(images)
         lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
+
+        # random cropping during training
+        # for upsamplers
+
+        if exists(random_crop_size):
+            aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
+
+            # make sure low res conditioner and image both get augmented the same way
+            # detailed https://kornia.readthedocs.io/en/latest/augmentation.module.html?highlight=randomcrop#kornia.augmentation.RandomCrop
+            images = aug(images)
+            lowres_cond_img = aug(lowres_cond_img, params = aug._params)
 
         # noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
