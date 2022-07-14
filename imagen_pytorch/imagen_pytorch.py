@@ -964,18 +964,25 @@ class TransformerBlock(nn.Module):
         self,
         dim,
         *,
+        depth = 1,
         heads = 8,
         dim_head = 32,
         ff_mult = 2,
         context_dim = None
     ):
         super().__init__()
-        self.attn = EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim))
-        self.ff = ChanFeedForward(dim = dim, mult = ff_mult)
+        self.layers = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim)),
+                ChanFeedForward(dim = dim, mult = ff_mult)
+            ]))
 
     def forward(self, x, context = None):
-        x = self.attn(x, context = context) + x
-        x = self.ff(x) + x
+        for attn, ff in self.layers:
+            x = attn(x, context = context) + x
+            x = ff(x) + x
         return x
 
 class LinearAttentionTransformerBlock(nn.Module):
@@ -983,18 +990,25 @@ class LinearAttentionTransformerBlock(nn.Module):
         self,
         dim,
         *,
+        depth = 1,
         heads = 8,
         dim_head = 32,
         ff_mult = 2,
         context_dim = None
     ):
         super().__init__()
-        self.attn = LinearAttention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim)
-        self.ff = ChanFeedForward(dim = dim, mult = ff_mult)
+        self.layers = nn.ModuleList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                LinearAttention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim),
+                ChanFeedForward(dim = dim, mult = ff_mult)
+            ]))
 
     def forward(self, x, context = None):
-        x = self.attn(x, context = context) + x
-        x = self.ff(x) + x
+        for attn, ff in self.layers:
+            x = attn(x, context = context) + x
+            x = ff(x) + x
         return x
 
 class CrossEmbedLayer(nn.Module):
@@ -1047,6 +1061,7 @@ class Unet(nn.Module):
         ff_mult = 2.,
         lowres_cond = False,                # for cascading diffusion - https://cascaded-diffusion.github.io/
         layer_attns = True,
+        layer_attns_depth = 1,
         layer_attns_add_text_cond = True,   # whether to condition the self-attention blocks with the text embeddings, as described in Appendix D.3.1
         attend_at_middle = True,            # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
         layer_cross_attns = True,
@@ -1212,6 +1227,7 @@ class Unet(nn.Module):
         resnet_groups = cast_tuple(resnet_groups, num_layers)
 
         layer_attns = cast_tuple(layer_attns, num_layers)
+        layer_attns_depth = cast_tuple(layer_attns_depth, num_layers)
         layer_cross_attns = cast_tuple(layer_cross_attns, num_layers)
 
         assert all([layers == num_layers for layers in list(map(len, (resnet_groups, layer_attns, layer_cross_attns)))])
@@ -1237,14 +1253,14 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
-        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_cross_attns]
+        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_attns_depth, layer_cross_attns]
         reversed_layer_params = list(map(reversed, layer_params))
 
         # downsampling layers
 
         skip_connect_dims = [] # keep track of skip connection dimensions
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
             is_last = ind >= (num_resolutions - 1)
 
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
@@ -1274,7 +1290,7 @@ class Unet(nn.Module):
                 pre_downsample,
                 ResnetBlock(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(current_dim, current_dim, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
-                transformer_block_klass(dim = current_dim, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
+                transformer_block_klass(dim = current_dim, depth = layer_attn_depth, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
                 post_downsample
             ]))
 
@@ -1292,7 +1308,7 @@ class Unet(nn.Module):
 
         # upsampling layers
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
             is_last = ind == (len(in_out) - 1)
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
@@ -1303,7 +1319,7 @@ class Unet(nn.Module):
             self.ups.append(nn.ModuleList([
                 ResnetBlock(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
-                transformer_block_klass(dim = dim_out, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
+                transformer_block_klass(dim = dim_out, depth = layer_attn_depth, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
                 upsample_klass(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
 
