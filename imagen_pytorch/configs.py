@@ -112,7 +112,6 @@ class ImagenTrainerConfig(AllowExtraBaseModel):
     beta1:                  float = 0.9
     beta2:                  float = 0.99
     max_grad_norm:          Optional[float] = None
-    amp:                    bool = False
     group_wd_params:        bool = True
     warmup_steps:           SingleOrList(Optional[int]) = None
     cosine_decay_max_steps: SingleOrList(Optional[int]) = None

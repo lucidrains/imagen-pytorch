@@ -24,6 +24,7 @@ from imagen_pytorch.imagen_pytorch import (
     maybe,
     default,
     cast_tuple,
+    cast_uint8_images_to_float,
     eval_decorator,
     check_shape,
     pad_tuple_to_length,
@@ -445,6 +446,8 @@ class ElucidatedImagen(nn.Module):
         device = default(device, self.device)
         self.reset_unets_all_one_device(device = device)
 
+        cond_images = maybe(cast_uint8_images_to_float)(cond_images)
+
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
@@ -538,6 +541,9 @@ class ElucidatedImagen(nn.Module):
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
         unet_number = default(unet_number, 1)
         assert not exists(self.only_train_unet_number) or self.only_train_unet_number == unet_number, 'you can only train on unet #{self.only_train_unet_number}'
+
+        images = cast_uint8_images_to_float(images)
+        cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
         unet_index = unet_number - 1
         
