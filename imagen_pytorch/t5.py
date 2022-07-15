@@ -110,7 +110,7 @@ def t5_encode_text(
     return_attn_mask = False
 ):
     token_ids, attn_mask = t5_tokenize(texts, name = name)
-    encoded_text = t5_encode_tokenized_text(token_ids, attn_mask = attn_mask)
+    encoded_text = t5_encode_tokenized_text(token_ids, attn_mask = attn_mask, name = name)
 
     if return_attn_mask:
         attn_mask = attn_mask.bool()
