@@ -62,7 +62,7 @@ def cast_tuple(val, length = None):
 def cast_uint8_images_to_float(images):
     if not images.dtype == torch.uint8:
         return images
-    return images / 127.5
+    return images / 255
 
 def module_device(module):
     return next(module.parameters()).device
