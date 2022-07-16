@@ -447,9 +447,10 @@ Not at the moment but one will likely be trained and open sourced within the yea
 - [x] use primer's depthwise convs on the qkv projections in linear attention (or use token shifting before projections) - also use new dropout proposed by bayesformer, as it seems to work well with linear attention
 - [x] explore skip layer excitation in unet decoder
 - [x] accelerate integration
+- [x] build out CLI tool and one-line generation of image
+- [ ] build out CLI tool for training, resuming training off config file
 - [ ] knock out any issues that arised from accelerate
 - [ ] preencoding of text to memmapped embeddings
-- [ ] build out CLI tool for training, resuming training, and one-line generation of image
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
 - [ ] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
 - [ ] consider unet with attention mediating skip connections https://arxiv.org/abs/2109.04335
