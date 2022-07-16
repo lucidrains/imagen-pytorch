@@ -1082,8 +1082,9 @@ class Unet(nn.Module):
         cond_on_text = True,
         max_text_len = 256,
         init_dim = None,
-        init_conv_kernel_size = 7,
         resnet_groups = 8,
+        init_conv_kernel_size = 7,          # kernel size of initial conv, if not using cross embed
+        init_cross_embed = True,
         init_cross_embed_kernel_sizes = (3, 7, 15),
         cross_embed_downsample = False,
         cross_embed_downsample_kernel_sizes = (2, 4),
@@ -1130,7 +1131,7 @@ class Unet(nn.Module):
 
         # initial convolution
 
-        self.init_conv = CrossEmbedLayer(init_channels, dim_out = init_dim, kernel_sizes = init_cross_embed_kernel_sizes, stride = 1)
+        self.init_conv = CrossEmbedLayer(init_channels, dim_out = init_dim, kernel_sizes = init_cross_embed_kernel_sizes, stride = 1) if init_cross_embed else nn.Conv2d(init_channels, init_dim, init_conv_kernel_size, padding = init_conv_kernel_size // 2)
 
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
