@@ -36,8 +36,6 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/BIGJUN777">BIGJUN</a> for catching a big bug with continuous time gaussian diffusion noise level conditioning at inference time
 
-- You? It isn't done yet, chip in if you are a researcher or skilled ML engineer
-
 ## Install
 
 ```bash
@@ -330,6 +328,7 @@ ex.
 
 ```bash
 $ imagen --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
+# image is saved to ./a_squirrel_trying_to_raid_the_birdfeeder.png
 ```
 
 In order to save checkpoints that can make use of this feature, you must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig`
@@ -340,7 +339,9 @@ ex.
 
 ```python
 import torch
-from imagen_pytorch import ElucidatedImagenConfig, ImagenTrainer
+from imagen_pytorch import ImagenConfig, ElucidatedImagenConfig, ImagenTrainer
+
+# in this example, using elucidated imagen
 
 imagen = ElucidatedImagenConfig(
     unets = [
