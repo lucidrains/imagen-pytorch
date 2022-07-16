@@ -364,7 +364,20 @@ trainer.save('./checkpoint.pt')
 # you should see a message informing you that ./checkpoint.pt is commandable from the terminal
 ```
 
-It really should be as simple as that. Let me know if it does not work
+It really should be as simple as that
+
+You can also pass this checkpoint file around, and anyone can continue finetune on their own data
+
+```python
+from imagen_pytorch import load_imagen_from_checkpoint, ImagenTrainer
+
+imagen = load_imagen_from_checkpoint('./checkpoint.pt')
+
+trainer = ImagenTrainer(imagen)
+
+# continue training / fine-tuning
+```
+
 
 ## Experimental
 
