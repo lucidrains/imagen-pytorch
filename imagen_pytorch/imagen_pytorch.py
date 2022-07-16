@@ -43,6 +43,19 @@ def maybe(fn):
         return fn(x)
     return inner
 
+def once(fn):
+    called = False
+    @wraps(fn)
+    def inner(x):
+        nonlocal called
+        if called:
+            return
+        called = True
+        return fn(x)
+    return inner
+
+print_once = once(print)
+
 def default(val, d):
     if exists(val):
         return val
@@ -296,7 +309,8 @@ def log_snr_to_alpha_sigma(log_snr):
 class GaussianDiffusionContinuousTimes(nn.Module):
     def __init__(self, *, noise_schedule, timesteps = 1000):
         super().__init__()
-        if noise_schedule == 'linear':
+
+        if noise_schedule == "linear":
             self.log_snr = beta_linear_log_snr
         elif noise_schedule == "cosine":
             self.log_snr = alpha_cosine_log_snr
@@ -1106,7 +1120,7 @@ class Unet(nn.Module):
         assert attn_heads > 1, 'you need to have more than 1 attention head, ideally at least 4 or 8'
 
         if dim < 128:
-            print('The base dimension of your u-net should ideally be no smaller than 128, as recommended by a professional DDPM trainer https://nonint.com/2022/05/04/friends-dont-let-friends-train-small-diffusion-models/')
+            print_once('The base dimension of your u-net should ideally be no smaller than 128, as recommended by a professional DDPM trainer https://nonint.com/2022/05/04/friends-dont-let-friends-train-small-diffusion-models/')
 
         # save locals to take care of some hyperparameters for cascading DDPM
 

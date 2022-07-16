@@ -322,6 +322,49 @@ $ accelerate launch train.py
 
 That's it!
 
+## Command-line
+
+To further democratize the use of this machine imagination, I have built in the ability to generate an image with any text prompt using one command line as so
+
+ex.
+
+```bash
+$ imagen --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
+```
+
+In order to save checkpoints that can make use of this feature, you must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig`
+
+For proper training, you'll likely want to setup config-driven training anyways.
+
+ex.
+
+```python
+import torch
+from imagen_pytorch import ElucidatedImagenConfig, ImagenTrainer
+
+imagen = ElucidatedImagenConfig(
+    unets = [
+        dict(dim = 32, dim_mults = (1, 2, 4, 8)),
+        dict(dim = 32, dim_mults = (1, 2, 4, 8))
+    ],
+    image_sizes = (64, 128),
+    cond_drop_prob = 0.5,
+    num_sample_steps = 32
+).create()
+
+trainer = ImagenTrainer(imagen)
+
+# do your training ...
+
+# then save it
+
+trainer.save('./checkpoint.pt')
+
+# you should see a message informing you that ./checkpoint.pt is commandable from the terminal
+```
+
+It really should be as simple as that. Let me know if it does not work
+
 ## Experimental
 
 <a href="https://research.nvidia.com/person/tero-karras">Tero Karras</a> of StyleGAN fame has written a <a href="https://arxiv.org/abs/2206.00364">new paper</a> with results that have been corroborated by a number of independent researchers as well as on my own machine. I have decided to create a version of `Imagen`, the `ElucidatedImagen`, so that one can use the new elucidated DDPM for text-guided cascading generation.

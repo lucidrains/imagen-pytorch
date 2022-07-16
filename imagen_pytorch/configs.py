@@ -32,6 +32,7 @@ class NoiseSchedule(Enum):
 class AllowExtraBaseModel(BaseModel):
     class Config:
         extra = "allow"
+        use_enum_values = True
 
 # imagen pydantic classes
 
@@ -69,7 +70,10 @@ class ImagenConfig(AllowExtraBaseModel):
         decoder_kwargs.pop('unets')
 
         unets = [unet.create() for unet in self.unets]
-        return Imagen(unets, **decoder_kwargs)
+        imagen = Imagen(unets, **decoder_kwargs)
+
+        imagen._config = self.dict().copy()
+        return imagen
 
 class ElucidatedImagenConfig(AllowExtraBaseModel):
     unets:                  ListOrTuple(UnetConfig)
@@ -101,7 +105,10 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
         decoder_kwargs.pop('unets')
 
         unets = [unet.create() for unet in self.unets]
-        return ElucidatedImagen(unets, **decoder_kwargs)
+        imagen = ElucidatedImagen(unets, **decoder_kwargs)
+
+        imagen._config = self.dict().copy()
+        return imagen
 
 class ImagenTrainerConfig(AllowExtraBaseModel):
     imagen:                 dict

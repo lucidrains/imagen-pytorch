@@ -213,6 +213,10 @@ class ImagenTrainer(nn.Module):
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
 
+        # elucidated or not
+
+        self.is_elucidated = isinstance(imagen, ElucidatedImagen)
+
         # create accelerator instance
 
         accelerate_kwargs, kwargs = groupby_prefix_and_trim('accelerate_', kwargs)
@@ -512,6 +516,19 @@ class ImagenTrainer(nn.Module):
 
         if self.use_ema:
             save_obj = {**save_obj, 'ema': self.ema_unets.state_dict()}
+
+        # determine if imagen config is available
+
+        if hasattr(self.imagen, '_config'):
+            self.print(f'this checkpoint is commandable from the CLI - "imagen --model {str(path)} \"<prompt>\""')
+
+            save_obj = {
+                **save_obj,
+                'imagen_type': 'elucidated' if self.is_elucidated else 'original',
+                'imagen_params': self.imagen._config
+            }
+
+        #save to path
 
         torch.save(save_obj, str(path))
         self.print(f'checkpoint saved to {str(path)}')
