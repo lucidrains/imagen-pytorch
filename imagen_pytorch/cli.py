@@ -18,10 +18,12 @@ def main():
 @click.command()
 @click.option('--model', default = './imagen.pt', help = 'path to trained Imagen model')
 @click.option('--cond_scale', default = 5, help = 'conditioning scale (classifier free guidance) in decoder')
+@click.option('--load_ema', default = True, help = 'load EMA version of unets if available')
 @click.argument('text')
 def imagen(
     model,
     cond_scale,
+    load_ema,
     text
 ):
     model_path = Path(model)
@@ -36,16 +38,8 @@ def imagen(
 
     # get imagen parameters and type
 
-    imagen = load_imagen_from_checkpoint(str(model_path))
+    imagen = load_imagen_from_checkpoint(str(model_path), load_ema_if_available = load_ema)
     imagen.cuda()
-
-    # get trained model parameters
-
-    model_params = safeget(loaded, 'model')
-
-    # load model parameters
-
-    imagen.load_state_dict(model_params)
 
     # generate image
 
