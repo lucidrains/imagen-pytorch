@@ -37,6 +37,9 @@ def default(val, d):
     return val if exists(val) else d
 
 def cast_tuple(val, length = 1):
+    if isinstance(val, list):
+        val = tuple(val)
+    
     return val if isinstance(val, tuple) else ((val,) * length)
 
 def find_first(fn, arr):
