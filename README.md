@@ -328,7 +328,7 @@ ex.
 
 ```bash
 $ imagen --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
-# image is saved to ./a_squirrel_trying_to_raid_the_birdfeeder.png
+# image is saved to ./a_squirrel_raiding_the_birdfeeder.png
 ```
 
 In order to save checkpoints that can make use of this feature, you must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig`

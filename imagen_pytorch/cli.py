@@ -1,16 +1,13 @@
 import click
 import torch
-from functools import reduce
 from pathlib import Path
 
-from imagen_pytorch import ImagenConfig, ElucidatedImagenConfig
+from imagen_pytorch import load_imagen_from_checkpoint
 from imagen_pytorch.version import __version__
+from imagen_pytorch.utils import safeget
 
 def exists(val):
     return val is not None
-
-def safeget(dictionary, keys, default = None):
-    return reduce(lambda d, key: d.get(key, default) if isinstance(d, dict) else default, keys.split('.'), dictionary)
 
 def simple_slugify(text, max_length = 255):
     return text.replace("-", "_").replace(",", "").replace(" ", "_").replace("|", "--").strip('-_')[:max_length]
@@ -39,20 +36,7 @@ def imagen(
 
     # get imagen parameters and type
 
-    imagen_params = safeget(loaded, 'imagen_params')
-    imagen_type = safeget(loaded, 'imagen_type')
-
-    if imagen_type == 'original':
-        imagen_klass = ImagenConfig
-    elif imagen_type == 'elucidated':
-        imagen_klass = ElucidatedImagenConfig
-    else:
-        raise ValueError(f'unknown imagen type {imagen_type}')
-
-    assert exists(imagen_params) and exists(imagen_type), 'imagen type and configuration not saved in this checkpoint'
-
-    imagen = imagen_klass(**imagen_params).create()
-
+    imagen = load_imagen_from_checkpoint(str(model_path))
     imagen.cuda()
 
     # get trained model parameters
