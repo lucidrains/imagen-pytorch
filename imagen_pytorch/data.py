@@ -3,7 +3,7 @@ from functools import partial
 
 import torch
 from torch import nn
-from torch.utils import data
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T, utils
 
 from PIL import Image
@@ -25,8 +25,7 @@ def convert_image_to(img_type, image):
 
 # dataset and dataloader
 
-
-class Dataset(data.Dataset):
+class Dataset(Dataset):
     def __init__(
         self,
         folder,
@@ -67,7 +66,7 @@ def get_images_dataloader(
     pin_memory = True
 ):
     ds = Dataset(folder, image_size)
-    dl = data.DataLoader(ds, batch_size = batch_size, shuffle = shuffle, pin_memory = pin_memory)
+    dl = DataLoader(ds, batch_size = batch_size, shuffle = shuffle, pin_memory = pin_memory)
 
     if cycle_dl:
         dl = cycle(dl)

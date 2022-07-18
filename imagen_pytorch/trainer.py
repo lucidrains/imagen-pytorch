@@ -9,6 +9,7 @@ from collections.abc import Iterable
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.utils.data import random_split, DataLoader
 from torch.optim import Adam
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.cuda.amp import autocast, GradScaler
@@ -200,12 +201,13 @@ class ImagenTrainer(nn.Module):
         warmup_steps = None,
         cosine_decay_max_steps = None,
         only_train_unet_number = None,
-        train_dl = None,
-        valid_dl = None,
         fp16 = False,
         split_batches = True,
         dl_tuple_output_keywords_names = ('images', 'text_embeds', 'text_masks', 'cond_images'),
         verbose = True,
+        split_valid_fraction = 0.025,
+        split_valid_from_train = False,
+        split_random_seed = 42,
         **kwargs
     ):
         super().__init__()
@@ -263,8 +265,11 @@ class ImagenTrainer(nn.Module):
 
         self.dl_tuple_output_keywords_names = dl_tuple_output_keywords_names
 
-        self.add_train_dataloader(train_dl)
-        self.add_valid_dataloader(valid_dl)
+        # auto splitting validation from training, if dataset is passed in
+
+        self.split_valid_from_train = split_valid_from_train
+        self.split_valid_fraction = split_valid_fraction
+        self.split_random_seed = split_random_seed
 
         # be able to finely customize learning rate, weight decay
         # per unet
@@ -440,6 +445,37 @@ class ImagenTrainer(nn.Module):
             return
 
         assert not exists(self.valid_dl), 'validation dataloader was already added'
+        self.valid_dl = self.accelerator.prepare(dl)
+
+    def add_train_dataset(self, ds = None, *, batch_size, **dl_kwargs):
+        if not exists(ds):
+            return
+
+        assert not exists(self.train_dl), 'training dataloader was already added'
+
+        valid_ds = None
+        if self.split_valid_from_train:
+            train_size = int((1 - self.split_valid_fraction) * len(ds))
+            valid_size = len(ds) - train_size
+
+            ds, valid_ds = random_split(ds, [train_size, valid_size], generator = torch.Generator().manual_seed(self.split_random_seed))
+            self.print(f'training with dataset of {len(ds)} samples and validating with randomly splitted {len(valid_ds)} samples')
+
+        dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
+        self.train_dl = self.accelerator.prepare(dl)
+
+        if not self.split_valid_from_train:
+            return
+
+        self.add_valid_dataset(valid_ds, batch_size = batch_size, **dl_kwargs)
+
+    def add_valid_dataset(self, ds, *, batch_size, **dl_kwargs):
+        if not exists(ds):
+            return
+
+        assert not exists(self.valid_dl), 'validation dataloader was already added'
+
+        dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
         self.valid_dl = self.accelerator.prepare(dl)
 
     def create_train_iter(self):
