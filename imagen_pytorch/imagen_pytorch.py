@@ -423,10 +423,14 @@ class PerceiverAttention(nn.Module):
         *,
         dim,
         dim_head = 64,
-        heads = 8
+        heads = 8,
+        cosine_sim_attn = False
     ):
         super().__init__()
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1
+        self.cosine_sim_attn = cosine_sim_attn
+        self.cosine_sim_scale = 16 if cosine_sim_attn else 1
+
         self.heads = heads
         inner_dim = dim_head * heads
 
@@ -457,15 +461,22 @@ class PerceiverAttention(nn.Module):
 
         q = q * self.scale
 
-        # attention
+        # cosine sim attention
 
-        sim = einsum('... i d, ... j d  -> ... i j', q, k)
+        if self.cosine_sim_attn:
+            q, k = map(l2norm, (q, k))
+
+        # similarities and masking
+
+        sim = einsum('... i d, ... j d  -> ... i j', q, k) * self.cosine_sim_scale
 
         if exists(mask):
             max_neg_value = -torch.finfo(sim.dtype).max
             mask = F.pad(mask, (0, latents.shape[-2]), value = True)
             mask = rearrange(mask, 'b j -> b 1 1 j')
             sim = sim.masked_fill(~mask, max_neg_value)
+
+        # attention
 
         attn = sim.softmax(dim = -1, dtype = torch.float32)
 
@@ -485,6 +496,7 @@ class PerceiverResampler(nn.Module):
         num_latents_mean_pooled = 4, # number of latents derived from mean pooled representation of the sequence
         max_seq_len = 512,
         ff_mult = 4,
+        cosine_sim_attn = False
     ):
         super().__init__()
         self.pos_emb = nn.Embedding(max_seq_len, dim)
@@ -503,7 +515,7 @@ class PerceiverResampler(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PerceiverAttention(dim = dim, dim_head = dim_head, heads = heads),
+                PerceiverAttention(dim = dim, dim_head = dim_head, heads = heads, cosine_sim_attn = cosine_sim_attn),
                 FeedForward(dim = dim, mult = ff_mult)
             ]))
 
@@ -535,10 +547,14 @@ class Attention(nn.Module):
         *,
         dim_head = 64,
         heads = 8,
-        context_dim = None
+        context_dim = None,
+        cosine_sim_attn = False
     ):
         super().__init__()
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
+        self.cosine_sim_attn = cosine_sim_attn
+        self.cosine_sim_scale = 16 if cosine_sim_attn else 1
+
         self.heads = heads
         inner_dim = dim_head * heads
 
@@ -578,9 +594,14 @@ class Attention(nn.Module):
             k = torch.cat((ck, k), dim = -2)
             v = torch.cat((cv, v), dim = -2)
 
+        # cosine sim attention
+
+        if self.cosine_sim_attn:
+            q, k = map(l2norm, (q, k))
+
         # calculate query / key similarities
 
-        sim = einsum('b h i d, b j d -> b h i j', q, k)
+        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.cosine_sim_scale
 
         # relative positional encoding (T5 style)
 
@@ -714,7 +735,8 @@ class ResnetBlock(nn.Module):
         groups = 8,
         linear_attn = False,
         use_gca = False,
-        squeeze_excite = False
+        squeeze_excite = False,
+        **attn_kwargs
     ):
         super().__init__()
 
@@ -736,7 +758,8 @@ class ResnetBlock(nn.Module):
                 'b (h w) c',
                 attn_klass(
                     dim = dim_out,
-                    context_dim = cond_dim
+                    context_dim = cond_dim,
+                    **attn_kwargs
                 )
             )
 
@@ -776,10 +799,14 @@ class CrossAttention(nn.Module):
         context_dim = None,
         dim_head = 64,
         heads = 8,
-        norm_context = False
+        norm_context = False,
+        cosine_sim_attn = False
     ):
         super().__init__()
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
+        self.cosine_sim_attn = cosine_sim_attn
+        self.cosine_sim_scale = 16 if cosine_sim_attn else 1
+
         self.heads = heads
         inner_dim = dim_head * heads
 
@@ -816,7 +843,17 @@ class CrossAttention(nn.Module):
 
         q = q * self.scale
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k)
+        # cosine sim attention
+
+        if self.cosine_sim_attn:
+            q, k = map(l2norm, (q, k))
+
+        # similarities
+
+        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.cosine_sim_scale
+
+        # masking
+
         max_neg_value = -torch.finfo(sim.dtype).max
 
         if exists(mask):
@@ -877,7 +914,8 @@ class LinearAttention(nn.Module):
         dim_head = 32,
         heads = 8,
         dropout = 0.05,
-        context_dim = None
+        context_dim = None,
+        **kwargs
     ):
         super().__init__()
         self.scale = dim_head ** -0.5
@@ -994,14 +1032,15 @@ class TransformerBlock(nn.Module):
         heads = 8,
         dim_head = 32,
         ff_mult = 2,
-        context_dim = None
+        context_dim = None,
+        cosine_sim_attn = False
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim)),
+                EinopsToAndFrom('b c h w', 'b (h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, cosine_sim_attn = cosine_sim_attn)),
                 ChanFeedForward(dim = dim, mult = ff_mult)
             ]))
 
@@ -1020,7 +1059,8 @@ class LinearAttentionTransformerBlock(nn.Module):
         heads = 8,
         dim_head = 32,
         ff_mult = 2,
-        context_dim = None
+        context_dim = None,
+        **kwargs
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
@@ -1111,6 +1151,7 @@ class Unet(nn.Module):
         scale_skip_connection = True,
         final_resnet_block = True,
         final_conv_kernel_size = 3,
+        cosine_sim_attn = False,
         pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
         super().__init__()
@@ -1221,7 +1262,7 @@ class Unet(nn.Module):
 
         # attention pooling
 
-        self.attn_pool = PerceiverResampler(dim = cond_dim, depth = 2, dim_head = attn_dim_head, heads = attn_heads, num_latents = attn_pool_num_latents) if attn_pool_text else None
+        self.attn_pool = PerceiverResampler(dim = cond_dim, depth = 2, dim_head = attn_dim_head, heads = attn_heads, num_latents = attn_pool_num_latents, cosine_sim_attn = cosine_sim_attn) if attn_pool_text else None
 
         # for classifier free guidance
 
@@ -1244,7 +1285,7 @@ class Unet(nn.Module):
 
         # attention related params
 
-        attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head)
+        attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head, cosine_sim_attn = cosine_sim_attn)
 
         num_layers = len(in_out)
 
@@ -1252,6 +1293,8 @@ class Unet(nn.Module):
 
         num_resnet_blocks = cast_tuple(num_resnet_blocks, num_layers)
         resnet_groups = cast_tuple(resnet_groups, num_layers)
+
+        resnet_klass = partial(ResnetBlock, **attn_kwargs)
 
         layer_attns = cast_tuple(layer_attns, num_layers)
         layer_attns_depth = cast_tuple(layer_attns_depth, num_layers)
@@ -1268,7 +1311,7 @@ class Unet(nn.Module):
 
         # initial resnet block (for memory efficient unet)
 
-        self.init_resnet_block = ResnetBlock(init_dim, init_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], use_gca = use_global_context_attn) if memory_efficient else None
+        self.init_resnet_block = resnet_klass(init_dim, init_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], use_gca = use_global_context_attn) if memory_efficient else None
 
         # scale for resnet skip connections
 
@@ -1315,9 +1358,9 @@ class Unet(nn.Module):
 
             self.downs.append(nn.ModuleList([
                 pre_downsample,
-                ResnetBlock(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
+                resnet_klass(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(current_dim, current_dim, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
-                transformer_block_klass(dim = current_dim, depth = layer_attn_depth, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
+                transformer_block_klass(dim = current_dim, depth = layer_attn_depth, ff_mult = ff_mult, context_dim = cond_dim, **attn_kwargs),
                 post_downsample
             ]))
 
@@ -1344,9 +1387,9 @@ class Unet(nn.Module):
             skip_connect_dim = skip_connect_dims.pop()
 
             self.ups.append(nn.ModuleList([
-                ResnetBlock(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
+                resnet_klass(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
-                transformer_block_klass(dim = dim_out, depth = layer_attn_depth, heads = attn_heads, dim_head = attn_dim_head, ff_mult = ff_mult, context_dim = cond_dim),
+                transformer_block_klass(dim = dim_out, depth = layer_attn_depth, ff_mult = ff_mult, context_dim = cond_dim, **attn_kwargs),
                 upsample_klass(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
 
