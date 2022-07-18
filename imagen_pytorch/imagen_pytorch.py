@@ -478,7 +478,7 @@ class PerceiverAttention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = sim.softmax(dim = -1)
 
         out = einsum('... i j, ... j d -> ... i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)', h = h)
@@ -619,7 +619,7 @@ class Attention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = sim.softmax(dim = -1)
 
         # aggregate values
 
