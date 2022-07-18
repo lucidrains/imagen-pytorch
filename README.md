@@ -261,7 +261,7 @@ ex. unconditional training
 
 ```python
 from imagen_pytorch import Unet, Imagen, ImagenTrainer
-from imagen_pytorch.data import get_images_dataloader
+from imagen_pytorch.data import Dataset
 
 # unets for unconditional imagen
 
@@ -282,19 +282,26 @@ imagen = Imagen(
     timesteps = 1000
 )
 
-trainer = ImagenTrainer(imagen).cuda()
+trainer = ImagenTrainer(
+    imagen = imagen,
+    split_valid_from_train = True # whether to split the validation dataset from the training
+).cuda()
 
 # instantiate your dataloader, which returns the necessary inputs to the DDPM as tuple in the order of images, text embeddings, then text masks. in this case, only images is returned as it is unconditional training
 
-train_dl = get_images_dataloader('/path/to/training/images', batch_size = 16, image_size = 128)
+dataset = Dataset('/path/to/training/images', image_size = 128)
 
-trainer.add_train_dataloader(train_dl)
+trainer.add_train_dataset(dataset, batch_size = 16)
 
 # working training loop
 
 for i in range(200000):
     loss = trainer.train_step(unet_number = 1, max_batch_size = 4)
     print(f'loss: {loss}')
+
+    if not (i % 50):
+        valid_loss = trainer.valid_step(unet_number = 1, max_batch_size = 4)
+        print(f'valid loss: {valid_loss}')
 
     if not (i % 100) and trainer.is_main: # is_main makes sure this can run in distributed
         images = trainer.sample(batch_size = 1, return_pil_images = True) # returns List[Image]
