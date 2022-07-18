@@ -268,6 +268,8 @@ class ImagenTrainer(nn.Module):
         # auto splitting validation from training, if dataset is passed in
 
         self.split_valid_from_train = split_valid_from_train
+
+        assert 0 <= split_valid_fraction <= 1, 'split valid fraction must be between 0 and 1'
         self.split_valid_fraction = split_valid_fraction
         self.split_random_seed = split_random_seed
 
