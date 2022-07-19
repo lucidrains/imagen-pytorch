@@ -498,6 +498,7 @@ More the reason why you should start training your own model, starting today! Th
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
 - [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
 - [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
+- [ ] build a simple checkpointing system, backed by a folder
 
 ## Citations
 
