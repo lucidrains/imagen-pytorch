@@ -10,6 +10,7 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
+from torch.cuda.amp import autocast
 from torch.special import expm1
 import torchvision.transforms as T
 
@@ -2051,7 +2052,9 @@ class Imagen(nn.Module):
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
-            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
+            with autocast(enabled = False):
+                text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
+
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
         if not self.unconditional:
@@ -2227,7 +2230,9 @@ class Imagen(nn.Module):
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
-            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
+            with autocast(enabled = False):
+                text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
+
             text_embeds, text_masks = map(lambda t: t.to(images.device), (text_embeds, text_masks))
 
         if not self.unconditional:
