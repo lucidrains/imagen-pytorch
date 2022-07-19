@@ -78,7 +78,7 @@ class ElucidatedImagen(nn.Module):
         condition_on_text = True,
         auto_normalize_img = True,                  # whether to take care of normalizing the image from [0, 1] to [-1, 1] and back automatically - you can turn this off if you want to pass in the [-1, 1] ranged image yourself from the dataloader
         dynamic_thresholding = True,
-        dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
+        dynamic_thresholding_percentile = 0.95,     # unsure what this was based on perusal of paper
         only_train_unet_number = None,
         lowres_noise_schedule = 'linear',
         num_sample_steps = 32,                      # number of sampling steps

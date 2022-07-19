@@ -1769,7 +1769,7 @@ class Imagen(nn.Module):
         p2_loss_weight_gamma = 0.5,                 # p2 loss weight, from https://arxiv.org/abs/2204.00227 - 0 is equivalent to weight of 1 across time
         p2_loss_weight_k = 1,
         dynamic_thresholding = True,
-        dynamic_thresholding_percentile = 0.9,      # unsure what this was based on perusal of paper
+        dynamic_thresholding_percentile = 0.95,     # unsure what this was based on perusal of paper
         only_train_unet_number = None
     ):
         super().__init__()
