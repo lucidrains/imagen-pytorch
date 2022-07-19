@@ -371,22 +371,31 @@ class GaussianDiffusionContinuousTimes(nn.Module):
 # norms and residuals
 
 class LayerNorm(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.gamma = nn.Parameter(torch.ones(dim))
-        self.register_buffer('beta', torch.zeros(dim))
-
-    def forward(self, x):
-        return F.layer_norm(x, x.shape[-1:], self.gamma, self.beta)
-
-
-class ChanLayerNorm(nn.Module):
-    def __init__(self, dim, eps = 1e-5):
+    def __init__(self, dim, eps = 1e-5, stable = False):
         super().__init__()
         self.eps = eps
+        self.stable = stable
+        self.g = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x):
+        if self.stable:
+            x = x / x.amax(dim = -1, keepdim = True).detach()
+
+        var = torch.var(x, dim = -1, unbiased = False, keepdim = True)
+        mean = torch.mean(x, dim = -1, keepdim = True)
+        return (x - mean) * (var + self.eps).rsqrt() * self.g
+
+class ChanLayerNorm(nn.Module):
+    def __init__(self, dim, eps = 1e-5, stable = False):
+        super().__init__()
+        self.eps = eps
+        self.stable = stable
         self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
 
     def forward(self, x):
+        if self.stable:
+            x = x / x.amax(dim = 1, keepdim = True).detach()
+
         var = torch.var(x, dim = 1, unbiased = False, keepdim = True)
         mean = torch.mean(x, dim = 1, keepdim = True)
         return (x - mean) / (var + self.eps).sqrt() * self.g
