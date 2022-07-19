@@ -589,7 +589,8 @@ class ImagenTrainer(nn.Module):
 
         self.reset_ema_unets_all_one_device()
 
-        loaded_obj = torch.load(str(path))
+        # to avoid extra GPU memory usage in main process when using Accelerate
+        loaded_obj = torch.load(str(path), map_location='cpu')
 
         if version.parse(__version__) != version.parse(loaded_obj['version']):
             self.print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
