@@ -275,6 +275,10 @@ class GaussianDiffusion(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def q_sample(self, x_start, t, noise = None):
+        if isinstance(t, int):
+            batch = x_start.shape[0]
+            t = torch.full((batch,), t, device = self.betas.device)
+
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         noised = (
@@ -357,6 +361,10 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def q_sample(self, x_start, t, noise = None):
+        if isinstance(t, float):
+            batch = x_start.shape[0]
+            t = torch.full((batch,), t, device = x_start.device, dtype = x_start.dtype)
+
         noise = default(noise, lambda: torch.randn_like(x_start))
         log_snr = self.log_snr(t)
         log_snr_padded_dim = right_pad_dims_to(x_start, log_snr)
@@ -1959,7 +1967,24 @@ class Imagen(nn.Module):
 
     # gaussian diffusion methods
 
-    def p_mean_variance(self, unet, x, t, *, noise_scheduler, text_embeds = None, text_mask = None, cond_images = None, lowres_cond_img = None, lowres_noise_times = None, cond_scale = 1., model_output = None, t_next = None, pred_objective = 'noise', dynamic_threshold = True):
+    def p_mean_variance(
+        self,
+        unet,
+        x,
+        t,
+        *,
+        noise_scheduler,
+        text_embeds = None,
+        text_mask = None,
+        cond_images = None,
+        lowres_cond_img = None,
+        lowres_noise_times = None,
+        cond_scale = 1.,
+        model_output = None,
+        t_next = None,
+        pred_objective = 'noise',
+        dynamic_threshold = True
+    ):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
         pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)))
@@ -1989,7 +2014,23 @@ class Imagen(nn.Module):
         return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
 
     @torch.no_grad()
-    def p_sample(self, unet, x, t, *, noise_scheduler, t_next = None, text_embeds = None, text_mask = None, cond_images = None, cond_scale = 1., lowres_cond_img = None, lowres_noise_times = None, pred_objective = 'noise', dynamic_threshold = True):
+    def p_sample(
+        self,
+        unet,
+        x,
+        t,
+        *,
+        noise_scheduler,
+        t_next = None,
+        text_embeds = None,
+        text_mask = None,
+        cond_images = None,
+        cond_scale = 1.,
+        lowres_cond_img = None,
+        lowres_noise_times = None,
+        pred_objective = 'noise',
+        dynamic_threshold = True
+    ):
         b, *_, device = *x.shape, x.device
         model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
         noise = torch.randn_like(x)
@@ -1999,16 +2040,49 @@ class Imagen(nn.Module):
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
     @torch.no_grad()
-    def p_sample_loop(self, unet, shape, *, noise_scheduler, lowres_cond_img = None, lowres_noise_times = None, text_embeds = None, text_mask = None, cond_images = None, cond_scale = 1, pred_objective = 'noise', dynamic_threshold = True, use_tqdm = True):
+    def p_sample_loop(
+        self,
+        unet,
+        shape,
+        *,
+        noise_scheduler,
+        lowres_cond_img = None,
+        lowres_noise_times = None,
+        text_embeds = None,
+        text_mask = None,
+        cond_images = None,
+        inpaint_images = None,
+        inpaint_masks = None,
+        cond_scale = 1,
+        pred_objective = 'noise',
+        dynamic_threshold = True,
+        use_tqdm = True
+    ):
         device = self.device
 
         batch = shape[0]
         img = torch.randn(shape, device = device)
         lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
 
+        # prepare inpainting
+
+        has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
+
+        if has_inpainting:
+            inpaint_images = self.normalize_img(inpaint_images)
+            inpaint_images = resize_image_to(inpaint_images, shape[-1])
+            inpaint_masks = resize_image_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+
+        # time
+
         timesteps = noise_scheduler.get_sampling_timesteps(batch, device = device)
 
         for times, times_next in tqdm(timesteps, desc = 'sampling loop time step', total = len(timesteps), disable = not use_tqdm):
+
+            if has_inpainting:
+                noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
+                img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
+
             img = self.p_sample(
                 unet,
                 img,
@@ -2026,6 +2100,12 @@ class Imagen(nn.Module):
             )
 
         img.clamp_(-1., 1.)
+
+        # final inpainting
+
+        if has_inpainting:
+            img = img * ~inpaint_masks + inpaint_images * inpaint_masks
+
         unnormalize_img = self.unnormalize_img(img)
         return unnormalize_img
 
@@ -2037,6 +2117,8 @@ class Imagen(nn.Module):
         text_masks = None,
         text_embeds = None,
         cond_images = None,
+        inpaint_images = None,
+        inpaint_masks = None,
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
@@ -2066,6 +2148,8 @@ class Imagen(nn.Module):
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
+
+        assert not (exists(inpaint_images) ^ exists(inpaint_masks)),  'inpaint images and masks must be both passed in to do inpainting'
 
         outputs = []
 
@@ -2099,6 +2183,8 @@ class Imagen(nn.Module):
                     text_embeds = text_embeds,
                     text_mask = text_masks,
                     cond_images = cond_images,
+                    inpaint_images = inpaint_images,
+                    inpaint_masks = inpaint_masks,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
@@ -2125,7 +2211,24 @@ class Imagen(nn.Module):
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
-    def p_losses(self, unet, x_start, times, *, noise_scheduler, lowres_cond_img = None, lowres_aug_times = None, text_embeds = None, text_mask = None, cond_images = None, noise = None, times_next = None, pred_objective = 'noise', p2_loss_weight_gamma = 0., random_crop_size = None):
+    def p_losses(
+        self,
+        unet,
+        x_start,
+        times,
+        *,
+        noise_scheduler,
+        lowres_cond_img = None,
+        lowres_aug_times = None,
+        text_embeds = None,
+        text_mask = None,
+        cond_images = None,
+        noise = None,
+        times_next = None,
+        pred_objective = 'noise',
+        p2_loss_weight_gamma = 0.,
+        random_crop_size = None
+    ):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]

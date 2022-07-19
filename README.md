@@ -385,6 +385,24 @@ trainer = ImagenTrainer(imagen)
 # continue training / fine-tuning
 ```
 
+## Inpainting
+
+Inpainting follows the formulation laid out by the recent <a href="https://arxiv.org/abs/2201.09865">Repaint paper</a>. Simply pass in `inpaint_images` and `inpaint_masks` to the `sample` function on either `Imagen` or `ElucidatedImagen`
+
+```python
+
+inpaint_images = torch.randn(4, 3, 512, 512).cuda()      # (batch, channels, height, width)
+inpaint_masks = torch.ones((4, 512, 512)).bool().cuda()  # (batch, height, width)
+
+inpainted_images = trainer.sample(texts = [
+    'a whale breaching from afar',
+    'young girl blowing out candles on her birthday cake',
+    'fireworks with blue and green sparkles',
+    'fireworks with blue and green sparkles'
+], inpaint_images = inpaint_images, inpaint_masks = inpaint_masks, cond_scale = 5.)
+
+inpainted_images # (4, 3, 512, 512)
+```
 
 ## Experimental
 
@@ -474,7 +492,7 @@ More the reason why you should start training your own model, starting today! Th
 - [x] accelerate integration
 - [x] build out CLI tool and one-line generation of image
 - [x] knock out any issues that arised from accelerate
-- [ ] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
+- [x] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
 - [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
@@ -559,5 +577,15 @@ More the reason why you should start training your own model, starting today! Th
     url         = {https://proceedings.neurips.cc/paper/2020/file/4c5bcfec8584af0d967f1ab10179ca4b-Paper.pdf},
     volume      = {33},
     year        = {2020}
+}
+```
+
+```bibtex
+@article{Lugmayr2022RePaintIU,
+    title   = {RePaint: Inpainting using Denoising Diffusion Probabilistic Models},
+    author  = {Andreas Lugmayr and Martin Danelljan and Andr{\'e}s Romero and Fisher Yu and Radu Timofte and Luc Van Gool},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2201.09865}
 }
 ```

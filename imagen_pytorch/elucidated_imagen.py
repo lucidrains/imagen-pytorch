@@ -353,6 +353,8 @@ class ElucidatedImagen(nn.Module):
         dynamic_threshold = True,
         cond_scale = 1.,
         use_tqdm = True,
+        inpaint_images = None,
+        inpaint_masks = None,
         **kwargs
     ):
         # get specific sampling hyperparameters for unet
@@ -377,6 +379,15 @@ class ElucidatedImagen(nn.Module):
 
         images = init_sigma * torch.randn(shape, device = self.device)
 
+        # prepare inpainting images and mask
+
+        has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
+
+        if has_inpainting:
+            inpaint_images = self.normalize_img(inpaint_images)
+            inpaint_images = resize_image_to(inpaint_images, shape[-1])
+            inpaint_masks = resize_image_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+
         # unet kwargs
 
         unet_kwargs = dict(
@@ -395,7 +406,12 @@ class ElucidatedImagen(nn.Module):
             eps = hp.S_noise * torch.randn(shape, device = self.device) # stochastic sampling
 
             sigma_hat = sigma + gamma * sigma
-            images_hat = images + sqrt(sigma_hat ** 2 - sigma ** 2) * eps
+            added_noise = sqrt(sigma_hat ** 2 - sigma ** 2) * eps
+
+            images_hat = images + added_noise
+
+            if has_inpainting:
+                images_hat = images_hat * ~inpaint_masks + (inpaint_images + added_noise) * inpaint_masks
 
             model_output = self.preconditioned_network_forward(
                 unet.forward_with_cond_scale,
@@ -424,6 +440,10 @@ class ElucidatedImagen(nn.Module):
             images = images_next
 
         images = images.clamp(-1., 1.)
+
+        if has_inpainting:
+            images = images * ~inpaint_masks + inpaint_images * inpaint_masks
+
         return self.unnormalize_img(images)
 
     @torch.no_grad()
@@ -434,6 +454,8 @@ class ElucidatedImagen(nn.Module):
         text_masks = None,
         text_embeds = None,
         cond_images = None,
+        inpaint_images = None,
+        inpaint_masks = None,
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
@@ -461,6 +483,8 @@ class ElucidatedImagen(nn.Module):
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
+
+        assert not (exists(inpaint_images) ^ exists(inpaint_masks)),  'inpaint images and masks must be both passed in to do inpainting'
 
         outputs = []
 
@@ -497,6 +521,8 @@ class ElucidatedImagen(nn.Module):
                     text_embeds = text_embeds,
                     text_mask = text_masks,
                     cond_images = cond_images,
+                    inpaint_images = inpaint_images,
+                    inpaint_masks = inpaint_masks,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
