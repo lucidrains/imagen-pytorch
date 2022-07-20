@@ -11,7 +11,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 from torch.cuda.amp import autocast, GradScaler
 
 import pytorch_warmup as warmup
@@ -300,6 +300,9 @@ class ImagenTrainer(nn.Module):
             if exists(unet_warmup_steps):
                 warmup_scheduler = warmup.LinearWarmup(optimizer, warmup_period = unet_warmup_steps)
 
+                if not exists(scheduler):
+                    scheduler = LambdaLR(optimizer, lr_lambda = lambda step: 1.0)
+
             # set on object
 
             setattr(self, f'optim{ind}', optimizer) # cannot use pytorch ModuleList for some reason with optimizers
@@ -348,6 +351,20 @@ class ImagenTrainer(nn.Module):
     @property
     def unwrapped_unet(self):
         return self.accelerator.unwrap_model(self.unet_being_trained)
+
+    # optimizer helper functions
+
+    def get_lr(self, unet_number):
+        self.validate_unet_number(unet_number)
+        unet_index = unet_number - 1
+
+        optim = getattr(self, f'optim{unet_index}')
+        sched = getattr(self, f'scheduler{unet_index}')
+
+        if exists(sched):
+            return sched.get_last_lr()[-1]
+
+        return optim.param_groups[0]['lr']
 
     # function for allowing only one unet from being trained at a time
 
