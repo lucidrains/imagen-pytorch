@@ -493,6 +493,7 @@ More the reason why you should start training your own model, starting today! Th
 - [x] build out CLI tool and one-line generation of image
 - [x] knock out any issues that arised from accelerate
 - [x] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
+- [ ] investigate https://arxiv.org/abs/2005.09007 architecture in context of ddpm
 - [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
