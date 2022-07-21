@@ -1,3 +1,4 @@
+import os
 import time
 import copy
 from pathlib import Path
@@ -208,6 +209,9 @@ class ImagenTrainer(nn.Module):
         split_valid_fraction = 0.025,
         split_valid_from_train = False,
         split_random_seed = 42,
+        checkpoint_path = None,
+        checkpoint_every = None,
+        max_checkpoints_keep = 20,
         **kwargs
     ):
         super().__init__()
@@ -324,6 +328,19 @@ class ImagenTrainer(nn.Module):
 
         self.imagen.to(self.device)
         self.to(self.device)
+
+        # checkpointing
+
+        assert not (exists(checkpoint_path) ^ exists(checkpoint_every))
+        self.checkpoint_path = checkpoint_path
+        self.checkpoint_every = checkpoint_every
+        self.max_checkpoints_keep = max_checkpoints_keep
+
+        if exists(checkpoint_path) and self.is_local_main:
+            self.checkpoint_path = Path(checkpoint_path)
+            self.checkpoint_path.mkdir(exist_ok = True, parents = True)
+
+            self.load_from_checkpoint_folder()
 
         # only allowing training for unet
 
@@ -536,6 +553,53 @@ class ImagenTrainer(nn.Module):
         loss = self.forward(**{**kwargs, **model_input})
         return loss
 
+    # checkpointing functions
+
+    @property
+    def all_checkpoints_sorted(self):
+        checkpoints = [*self.checkpoint_path.glob('*.pt')]
+        sorted_checkpoints = sorted(checkpoints, key = lambda x: int(str(x).split('.')[-2]), reverse = True)
+        return sorted_checkpoints
+
+    def load_from_checkpoint_folder(self, last_total_steps = -1):
+        if last_total_steps != -1:
+            filepath = str(self.checkpoint_path / f'checkpoint.{last_total_steps}.pt')
+            self.load(str(filepath))
+            return
+
+        sorted_checkpoints = self.all_checkpoints_sorted
+
+        if len(sorted_checkpoints) == 0:
+            self.print(f'no checkpoints found to load from at {str(self.checkpoint_path)}')
+            return
+
+        last_checkpoint = sorted_checkpoints[0]
+        self.load(str(last_checkpoint))
+
+        self.print(f'loading checkpoint from {str(last_checkpoint)}')
+
+    def save_to_checkpoint_folder(self):
+        self.accelerator.wait_for_everyone()
+
+        if not self.is_local_main:
+            return
+
+        total_steps = int(self.steps.sum().item())
+        filepath = self.checkpoint_path / f'checkpoint.{total_steps}.pt'
+
+        self.save(filepath)
+
+        self.print(f'saved checkpoint to {str(filepath)}')
+
+        if self.max_checkpoints_keep <= 0:
+            return
+
+        sorted_checkpoints = self.all_checkpoints_sorted
+        checkpoints_to_discard = sorted_checkpoints[self.max_checkpoints_keep:]
+
+        for checkpoint in checkpoints_to_discard:
+            os.remove(str(checkpoint))
+
     # saving and loading functions
 
     def save(self, path, overwrite = True, **kwargs):
@@ -602,7 +666,7 @@ class ImagenTrainer(nn.Module):
             self.print(f'trainer checkpoint not found at {str(path)}')
             return
 
-        assert path.exists()
+        assert path.exists(), f'{str(path)} does not exist'
 
         self.reset_ema_unets_all_one_device()
 
@@ -773,6 +837,16 @@ class ImagenTrainer(nn.Module):
                 scheduler.step()
 
         self.steps += F.one_hot(torch.tensor(unet_number - 1, device = self.steps.device), num_classes = len(self.steps))
+
+        if not exists(self.checkpoint_path):
+            return
+
+        total_steps = int(self.steps.sum().item())
+
+        if total_steps % self.checkpoint_every:
+            return
+
+        self.save_to_checkpoint_folder()
 
     @torch.no_grad()
     @cast_torch_tensor

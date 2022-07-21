@@ -493,13 +493,14 @@ More the reason why you should start training your own model, starting today! Th
 - [x] build out CLI tool and one-line generation of image
 - [x] knock out any issues that arised from accelerate
 - [x] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
+- [x] build a simple checkpointing system, backed by a folder
+- [ ] add advanced checkpointing system that can be backed to a google bucket or s3
 - [ ] investigate https://arxiv.org/abs/2005.09007 architecture in context of ddpm
 - [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
 - [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
 - [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
-- [ ] build a simple checkpointing system, backed by a folder
 
 ## Citations
 
