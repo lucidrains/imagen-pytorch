@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 import torchvision.transforms as T
+from torch.cuda.amp import autocast
 
 import kornia.augmentation as K
 
@@ -589,8 +590,11 @@ class ElucidatedImagen(nn.Module):
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
-
-            text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
+            
+            # there will be nan in text_embeds if encode text in fp16 mode
+            # possible fix can be done based on https://discuss.huggingface.co/t/t5-fp16-issue-is-fixed/3139
+            with autocast(enabled=False):
+                text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
             text_embeds, text_masks = map(lambda t: t.to(images.device), (text_embeds, text_masks))
 
         if not self.unconditional:
