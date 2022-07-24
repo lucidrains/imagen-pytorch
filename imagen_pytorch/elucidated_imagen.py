@@ -355,6 +355,7 @@ class ElucidatedImagen(nn.Module):
         use_tqdm = True,
         inpaint_images = None,
         inpaint_masks = None,
+        inpaint_resample_times = 5,
         **kwargs
     ):
         # get specific sampling hyperparameters for unet
@@ -382,6 +383,7 @@ class ElucidatedImagen(nn.Module):
         # prepare inpainting images and mask
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
+        resample_times = inpaint_resample_times if has_inpainting else 1
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
@@ -400,44 +402,53 @@ class ElucidatedImagen(nn.Module):
 
         # gradually denoise
 
-        for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc = 'sampling time step', disable = not use_tqdm):
+        for ind, (sigma, sigma_next, gamma) in tqdm(enumerate(sigmas_and_gammas), total = len(sigmas_and_gammas), desc = 'sampling time step', disable = not use_tqdm):
+            is_last_timestep = ind == 0
             sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
 
-            eps = hp.S_noise * torch.randn(shape, device = self.device) # stochastic sampling
+            for r in reversed(range(resample_times)):
+                is_last_resample_step = r == 0
 
-            sigma_hat = sigma + gamma * sigma
-            added_noise = sqrt(sigma_hat ** 2 - sigma ** 2) * eps
+                eps = hp.S_noise * torch.randn(shape, device = self.device) # stochastic sampling
 
-            images_hat = images + added_noise
+                sigma_hat = sigma + gamma * sigma
+                added_noise = sqrt(sigma_hat ** 2 - sigma ** 2) * eps
 
-            if has_inpainting:
-                images_hat = images_hat * ~inpaint_masks + (inpaint_images + added_noise) * inpaint_masks
+                images_hat = images + added_noise
 
-            model_output = self.preconditioned_network_forward(
-                unet.forward_with_cond_scale,
-                images_hat,
-                sigma_hat,
-                **unet_kwargs
-            )
+                if has_inpainting:
+                    images_hat = images_hat * ~inpaint_masks + (inpaint_images + added_noise) * inpaint_masks
 
-            denoised_over_sigma = (images_hat - model_output) / sigma_hat
-
-            images_next = images_hat + (sigma_next - sigma_hat) * denoised_over_sigma
-
-            # second order correction, if not the last timestep
-
-            if sigma_next != 0:
-                model_output_next = self.preconditioned_network_forward(
+                model_output = self.preconditioned_network_forward(
                     unet.forward_with_cond_scale,
-                    images_next,
-                    sigma_next,
+                    images_hat,
+                    sigma_hat,
                     **unet_kwargs
                 )
 
-                denoised_prime_over_sigma = (images_next - model_output_next) / sigma_next
-                images_next = images_hat + 0.5 * (sigma_next - sigma_hat) * (denoised_over_sigma + denoised_prime_over_sigma)
+                denoised_over_sigma = (images_hat - model_output) / sigma_hat
 
-            images = images_next
+                images_next = images_hat + (sigma_next - sigma_hat) * denoised_over_sigma
+
+                # second order correction, if not the last timestep
+
+                if sigma_next != 0:
+                    model_output_next = self.preconditioned_network_forward(
+                        unet.forward_with_cond_scale,
+                        images_next,
+                        sigma_next,
+                        **unet_kwargs
+                    )
+
+                    denoised_prime_over_sigma = (images_next - model_output_next) / sigma_next
+                    images_next = images_hat + 0.5 * (sigma_next - sigma_hat) * (denoised_over_sigma + denoised_prime_over_sigma)
+
+                images = images_next
+
+                if has_inpainting and not (is_last_resample_step or is_last_timestep):
+                    # renoise in repaint and then resample
+                    repaint_noise = torch.randn(shape, device = self.device)
+                    images = images + (sigma - sigma_next) * repaint_noise
 
         images = images.clamp(-1., 1.)
 
