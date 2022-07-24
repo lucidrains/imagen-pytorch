@@ -244,6 +244,28 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
         return alpha * x_start + sigma * noise, log_snr
 
+    def q_sample_from_to(self, x_from, from_t, to_t, noise = None):
+        shape, device, dtype = x_from.shape, x_from.device, x_from.dtype
+        batch = shape[0]
+
+        if isinstance(from_t, float):
+            from_t = torch.full((batch,), from_t, device = device, dtype = dtype)
+
+        if isinstance(to_t, float):
+            to_t = torch.full((batch,), to_t, device = device, dtype = dtype)
+
+        noise = default(noise, lambda: torch.randn_like(x_from))
+
+        log_snr = self.log_snr(from_t)
+        log_snr_padded_dim = right_pad_dims_to(x_from, log_snr)
+        alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
+
+        log_snr_to = self.log_snr(from_t)
+        log_snr_padded_dim_to = right_pad_dims_to(x_from, log_snr_to)
+        alpha_to, sigma_to =  log_snr_to_alpha_sigma(log_snr_padded_dim_to)
+
+        return x_from * (alpha_to / alpha) + noise * (sigma_to * alpha - sigma * alpha_to) / alpha
+
     def predict_start_from_noise(self, x_t, t, noise):
         log_snr = self.log_snr(t)
         log_snr = right_pad_dims_to(x_t, log_snr)
@@ -1925,6 +1947,7 @@ class Imagen(nn.Module):
         cond_images = None,
         inpaint_images = None,
         inpaint_masks = None,
+        inpaint_resample_times = 5,
         cond_scale = 1,
         pred_objective = 'noise',
         dynamic_threshold = True,
@@ -1939,6 +1962,7 @@ class Imagen(nn.Module):
         # prepare inpainting
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
+        resample_times = inpaint_resample_times if has_inpainting else 1
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
@@ -1950,26 +1974,39 @@ class Imagen(nn.Module):
         timesteps = noise_scheduler.get_sampling_timesteps(batch, device = device)
 
         for times, times_next in tqdm(timesteps, desc = 'sampling loop time step', total = len(timesteps), disable = not use_tqdm):
+            is_last_timestep = times_next == 0
 
-            if has_inpainting:
-                noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
-                img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
+            for r in reversed(range(resample_times)):
+                is_last_resample_step = r == 0
 
-            img = self.p_sample(
-                unet,
-                img,
-                times,
-                t_next = times_next,
-                text_embeds = text_embeds,
-                text_mask = text_mask,
-                cond_images = cond_images,
-                cond_scale = cond_scale,
-                lowres_cond_img = lowres_cond_img,
-                lowres_noise_times = lowres_noise_times,
-                noise_scheduler = noise_scheduler,
-                pred_objective = pred_objective,
-                dynamic_threshold = dynamic_threshold
-            )
+                if has_inpainting:
+                    noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
+                    img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
+
+                img = self.p_sample(
+                    unet,
+                    img,
+                    times,
+                    t_next = times_next,
+                    text_embeds = text_embeds,
+                    text_mask = text_mask,
+                    cond_images = cond_images,
+                    cond_scale = cond_scale,
+                    lowres_cond_img = lowres_cond_img,
+                    lowres_noise_times = lowres_noise_times,
+                    noise_scheduler = noise_scheduler,
+                    pred_objective = pred_objective,
+                    dynamic_threshold = dynamic_threshold
+                )
+
+                if has_inpainting and not (is_last_resample_step or torch.all(is_last_timestep)):
+                    renoised_img = noise_scheduler.q_sample_from_to(img, times_next, times)
+
+                    img = torch.where(
+                        rearrange(is_last_timestep, 'b -> b 1 1 1'),
+                        img,
+                        renoised_img
+                    )
 
         img.clamp_(-1., 1.)
 
@@ -1991,6 +2028,7 @@ class Imagen(nn.Module):
         cond_images = None,
         inpaint_images = None,
         inpaint_masks = None,
+        inpaint_resample_times = 5,
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
@@ -2057,6 +2095,7 @@ class Imagen(nn.Module):
                     cond_images = cond_images,
                     inpaint_images = inpaint_images,
                     inpaint_masks = inpaint_masks,
+                    inpaint_resample_times = inpaint_resample_times,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
