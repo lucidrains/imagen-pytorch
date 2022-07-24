@@ -16,7 +16,6 @@ import kornia.augmentation as K
 from einops import rearrange, repeat, reduce
 
 from imagen_pytorch.imagen_pytorch import (
-    GaussianDiffusion,
     GaussianDiffusionContinuousTimes,
     Unet,
     first,
