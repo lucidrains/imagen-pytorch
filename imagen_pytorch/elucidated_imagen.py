@@ -401,8 +401,11 @@ class ElucidatedImagen(nn.Module):
 
         # gradually denoise
 
-        for ind, (sigma, sigma_next, gamma) in tqdm(enumerate(sigmas_and_gammas), total = len(sigmas_and_gammas), desc = 'sampling time step', disable = not use_tqdm):
-            is_last_timestep = ind == 0
+        total_steps = len(sigmas_and_gammas)
+
+        for ind, (sigma, sigma_next, gamma) in tqdm(enumerate(sigmas_and_gammas), total = total_steps, desc = 'sampling time step', disable = not use_tqdm):
+            is_last_timestep = ind == (total_steps - 1)
+
             sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
 
             for r in reversed(range(resample_times)):
