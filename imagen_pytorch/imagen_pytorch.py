@@ -1028,7 +1028,6 @@ class Unet(nn.Module):
         cond_dim = None,
         num_image_tokens = 4,
         num_time_tokens = 2,
-        learned_sinu_pos_emb = True,
         learned_sinu_pos_emb_dim = 16,
         out_dim = None,
         dim_mults=(1, 2, 4, 8),
@@ -1109,16 +1108,10 @@ class Unet(nn.Module):
         cond_dim = default(cond_dim, dim)
         time_cond_dim = dim * 4 * (2 if lowres_cond else 1)
 
-        # embedding time for discrete gaussian diffusion or log(snr) noise for continuous version
+        # embedding time for log(snr) noise from continuous version
 
-        self.learned_sinu_pos_emb = learned_sinu_pos_emb
-
-        if learned_sinu_pos_emb:
-            sinu_pos_emb = LearnedSinusoidalPosEmb(learned_sinu_pos_emb_dim)
-            sinu_pos_emb_input_dim = learned_sinu_pos_emb_dim + 1
-        else:
-            sinu_pos_emb = SinusoidalPosEmb(dim)
-            sinu_pos_emb_input_dim = dim
+        sinu_pos_emb = LearnedSinusoidalPosEmb(learned_sinu_pos_emb_dim)
+        sinu_pos_emb_input_dim = learned_sinu_pos_emb_dim + 1
 
         self.to_time_hiddens = nn.Sequential(
             sinu_pos_emb,
@@ -1331,14 +1324,12 @@ class Unet(nn.Module):
         text_embed_dim,
         channels,
         channels_out,
-        cond_on_text,
-        learned_sinu_pos_emb
+        cond_on_text
     ):
         if lowres_cond == self.lowres_cond and \
             channels == self.channels and \
             cond_on_text == self.cond_on_text and \
             text_embed_dim == self._locals['text_embed_dim'] and \
-            learned_sinu_pos_emb == self.learned_sinu_pos_emb and \
             channels_out == self.channels_out:
             return self
 
@@ -1347,8 +1338,7 @@ class Unet(nn.Module):
             text_embed_dim = text_embed_dim,
             channels = channels,
             channels_out = channels_out,
-            cond_on_text = cond_on_text,
-            learned_sinu_pos_emb = learned_sinu_pos_emb
+            cond_on_text = cond_on_text
         )
 
         return self.__class__(**{**self._locals, **updated_kwargs})
@@ -1752,8 +1742,7 @@ class Imagen(nn.Module):
                 cond_on_text = self.condition_on_text,
                 text_embed_dim = self.text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
-                channels_out = self.channels,
-                learned_sinu_pos_emb = True
+                channels_out = self.channels
             )
 
             self.unets.append(one_unet)

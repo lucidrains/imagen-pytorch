@@ -140,8 +140,7 @@ class ElucidatedImagen(nn.Module):
                 cond_on_text = self.condition_on_text,
                 text_embed_dim = self.text_embed_dim if self.condition_on_text else None,
                 channels = self.channels,
-                channels_out = self.channels,
-                learned_sinu_pos_emb = True
+                channels_out = self.channels
             )
 
             self.unets.append(one_unet)
