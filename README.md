@@ -495,7 +495,8 @@ More the reason why you should start training your own model, starting today! Th
 - [x] add inpainting ability using resampler from repaint paper https://arxiv.org/abs/2201.09865
 - [x] build a simple checkpointing system, backed by a folder
 - [x] add skip connection from outputs of all upsample blocks, used in unet squared paper and some previous unet works
-- [ ] add fsspec, recommended by Romain @rom1504, for cloud / local file system agnostic persistence of checkpoints
+- [x] add fsspec, recommended by Romain @rom1504, for cloud / local file system agnostic persistence of checkpoints
+- [ ] test out persistence in gcs with https://github.com/fsspec/gcsfs
 - [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
