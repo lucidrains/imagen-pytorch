@@ -1017,6 +1017,40 @@ class CrossEmbedLayer(nn.Module):
         fmaps = tuple(map(lambda conv: conv(x), self.convs))
         return torch.cat(fmaps, dim = 1)
 
+class UpsampleCombiner(nn.Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        enabled = False,
+        dim_ins = tuple(),
+        dim_outs = tuple()
+    ):
+        super().__init__()
+        dim_outs = cast_tuple(dim_outs, len(dim_ins))
+        assert len(dim_ins) == len(dim_outs)
+
+        self.enabled = enabled
+
+        if not self.enabled:
+            self.dim_out = dim
+            return
+
+        self.fmap_convs = nn.ModuleList([Block(dim_in, dim_out) for dim_in, dim_out in zip(dim_ins, dim_outs)])
+        self.dim_out = dim + (sum(dim_outs) if len(dim_outs) > 0 else 0)
+
+    def forward(self, x, fmaps = None):
+        target_size = x.shape[-1]
+
+        fmaps = default(fmaps, tuple())
+
+        if not self.enabled or len(fmaps) == 0 or len(self.fmap_convs) == 0:
+            return x
+
+        fmaps = [resize_image_to(fmap, target_size) for fmap in fmaps]
+        outs = [conv(fmap) for fmap, conv in zip(fmaps, self.fmap_convs)]
+        return torch.cat((x, *outs), dim = 1)
+
 class Unet(nn.Module):
     def __init__(
         self,
@@ -1064,6 +1098,7 @@ class Unet(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         cosine_sim_attn = False,
+        combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
         super().__init__()
@@ -1284,6 +1319,8 @@ class Unet(nn.Module):
 
         # upsampling layers
 
+        upsample_fmap_dims = []
+
         for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
             is_last = ind == (len(in_out) - 1)
             layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
@@ -1292,6 +1329,8 @@ class Unet(nn.Module):
 
             skip_connect_dim = skip_connect_dims.pop()
 
+            upsample_fmap_dims.append(dim_out)
+
             self.ups.append(nn.ModuleList([
                 resnet_klass(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
@@ -1299,10 +1338,19 @@ class Unet(nn.Module):
                 upsample_klass(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
 
+        # whether to combine feature maps from all upsample blocks before final resnet block out
+
+        self.upsample_combiner = UpsampleCombiner(
+            dim = dim,
+            enabled = combine_upsample_fmaps,
+            dim_ins = upsample_fmap_dims,
+            dim_outs = dim
+        )
+
         # whether to do a final residual from initial conv to the final resnet block out
 
         self.init_conv_to_final_conv_residual = init_conv_to_final_conv_residual
-        final_conv_dim = dim * (2 if init_conv_to_final_conv_residual else 1)
+        final_conv_dim = self.upsample_combiner.dim_out + (dim if init_conv_to_final_conv_residual else 0)
 
         # final optional resnet block and convolution out
 
@@ -1560,6 +1608,8 @@ class Unet(nn.Module):
 
         add_skip_connection = lambda x: torch.cat((x, hiddens.pop() * self.skip_connect_scale), dim = 1)
 
+        up_hiddens = []
+
         for init_block, resnet_blocks, attn_block, upsample in self.ups:
             x = add_skip_connection(x)
             x = init_block(x, t, c)
@@ -1569,7 +1619,12 @@ class Unet(nn.Module):
                 x = resnet_block(x, t)
 
             x = attn_block(x, c)
+            up_hiddens.append(x.contiguous())
             x = upsample(x)
+
+        # whether to combine all feature maps from upsample blocks
+
+        x = self.upsample_combiner(x, up_hiddens)
 
         # final top-most residual if needed
 
