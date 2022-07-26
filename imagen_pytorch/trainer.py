@@ -85,6 +85,38 @@ def num_to_groups(num, divisor):
         arr.append(remainder)
     return arr
 
+# url to fs, bucket, path - for checkpointing to cloud
+
+def url_to_fs(url, fs_kwargs = None):
+    fs_kwargs = default(fs_kwargs, {})
+
+    if '://' not in url:
+        return LocalFileSystem(**{'auto_mkdir': True, **fs_kwargs})
+
+    prefix, _ = url.split('://')
+
+    if prefix == 'gs':
+        try:
+            from gcsfs import GCSFileSystem
+        except:
+            print('you need to install gcsfs using conda to use google storage to backup your checkpoints - `conda install -c conda-forge gcsfs`')
+            exit()
+
+        return GCSFileSystem(**fs_kwargs)
+    else:
+        raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
+
+def url_to_bucket(url):
+    if '://' not in url:
+        return url
+
+    _, suffix = url.split('://')
+
+    if prefix == 'gs':
+        return suffix.split('/')[0]
+    else:
+        raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
+
 # decorators
 
 def eval_decorator(fn):
@@ -216,7 +248,7 @@ class ImagenTrainer(nn.Module):
         checkpoint_path = None,
         checkpoint_every = None,
         checkpoint_fs = None,
-        fs_kwargs = None,
+        fs_kwargs: dict = None,
         max_checkpoints_keep = 20,
         **kwargs
     ):
@@ -226,8 +258,7 @@ class ImagenTrainer(nn.Module):
 
         # determine filesystem, using fsspec, for saving to local filesystem or cloud
 
-        fs = default(checkpoint_fs, lambda: LocalFileSystem(auto_mkdir = True))
-        self.fs = fs
+        self.fs = default(checkpoint_fs, lambda: url_to_fs(checkpoint_path, fs_kwargs))
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
@@ -345,8 +376,10 @@ class ImagenTrainer(nn.Module):
         self.can_checkpoint = self.is_local_main if isinstance(checkpoint_fs, LocalFileSystem) else self.is_main
 
         if exists(checkpoint_path) and self.can_checkpoint:
-            if not fs.exists(checkpoint_path):
-                self.fs.mkdir(checkpoint_path)
+            bucket = url_to_bucket(checkpoint_path)
+
+            if not self.fs.exists(bucket):
+                self.fs.mkdir(bucket)
 
             self.load_from_checkpoint_folder()
 
