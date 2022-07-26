@@ -376,10 +376,6 @@ class ImagenTrainer(nn.Module):
         unet_index = unet_number - 1
 
         optim = getattr(self, f'optim{unet_index}')
-        sched = getattr(self, f'scheduler{unet_index}')
-
-        if exists(sched):
-            return sched.get_last_lr()[-1]
 
         return optim.param_groups[0]['lr']
 
