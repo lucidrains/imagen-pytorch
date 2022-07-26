@@ -216,6 +216,7 @@ class ImagenTrainer(nn.Module):
         checkpoint_path = None,
         checkpoint_every = None,
         checkpoint_fs = None,
+        fs_kwargs = None,
         max_checkpoints_keep = 20,
         **kwargs
     ):
@@ -225,12 +226,8 @@ class ImagenTrainer(nn.Module):
 
         # determine filesystem, using fsspec, for saving to local filesystem or cloud
 
-        fs = default(checkpoint_fs, lambda: LocalFileSystem())
+        fs = default(checkpoint_fs, lambda: LocalFileSystem(auto_mkdir = True))
         self.fs = fs
-
-        if self.fs.exists(imagen_checkpoint_path):
-            with self.fs.open(imagen_checkpoint_path) as f:
-                loaded = torch.load(imagen_checkpoint_path)
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
@@ -350,6 +347,7 @@ class ImagenTrainer(nn.Module):
         if exists(checkpoint_path) and self.can_checkpoint:
             if not fs.exists(checkpoint_path):
                 self.fs.mkdir(checkpoint_path)
+
             self.load_from_checkpoint_folder()
 
         # only allowing training for unet
@@ -614,11 +612,6 @@ class ImagenTrainer(nn.Module):
         fs = self.fs
 
         assert not (fs.exists(path) and not overwrite)
-
-        dirname = os.path.dirname(path)
-
-        if not fs.exists(dirname):
-            fs.mkdir(dirname)
 
         self.reset_ema_unets_all_one_device()
 
