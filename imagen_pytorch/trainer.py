@@ -98,11 +98,18 @@ def url_to_fs(url, fs_kwargs = None):
     if prefix == 'gs':
         try:
             from gcsfs import GCSFileSystem
+            return GCSFileSystem(**fs_kwargs)
         except:
             print('you need to install gcsfs using conda to use google storage to backup your checkpoints - `conda install -c conda-forge gcsfs`')
             exit()
 
-        return GCSFileSystem(**fs_kwargs)
+    elif prefix == 's3':
+        try:
+            from s3fs import S3FileSystem
+            return S3FileSystem(**fs_kwargs)
+        except:
+            print('you need to install s3fs first `pip install s3fs` or `conda install s3fs -c conda-forge`')
+            exit()
     else:
         raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
 
@@ -112,7 +119,7 @@ def url_to_bucket(url):
 
     _, suffix = url.split('://')
 
-    if prefix == 'gs':
+    if prefix in {'gs', 's3'}:
         return suffix.split('/')[0]
     else:
         raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
