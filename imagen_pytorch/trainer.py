@@ -265,7 +265,10 @@ class ImagenTrainer(nn.Module):
 
         # determine filesystem, using fsspec, for saving to local filesystem or cloud
 
-        self.fs = default(checkpoint_fs, lambda: url_to_fs(checkpoint_path, fs_kwargs))
+        self.fs = checkpoint_fs
+
+        if not exists(self.fs):
+            self.fs = url_to_fs(default(checkpoint_path, './'), fs_kwargs)
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
