@@ -30,6 +30,7 @@ from ema_pytorch import EMA
 
 from accelerate import Accelerator, DistributedType, DistributedDataParallelKwargs
 
+from fsspec.core import url_to_fs
 from fsspec.implementations.local import LocalFileSystem
 
 # helper functions
@@ -86,32 +87,6 @@ def num_to_groups(num, divisor):
     return arr
 
 # url to fs, bucket, path - for checkpointing to cloud
-
-def url_to_fs(url, fs_kwargs = None):
-    fs_kwargs = default(fs_kwargs, {})
-
-    if '://' not in url:
-        return LocalFileSystem(**{'auto_mkdir': True, **fs_kwargs})
-
-    prefix, _ = url.split('://')
-
-    if prefix == 'gs':
-        try:
-            from gcsfs import GCSFileSystem
-            return GCSFileSystem(**fs_kwargs)
-        except:
-            print('you need to install gcsfs using conda to use google storage to backup your checkpoints - `conda install -c conda-forge gcsfs`')
-            exit()
-
-    elif prefix == 's3':
-        try:
-            from s3fs import S3FileSystem
-            return S3FileSystem(**fs_kwargs)
-        except:
-            print('you need to install s3fs first `pip install s3fs` or `conda install s3fs -c conda-forge`')
-            exit()
-    else:
-        raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
 
 def url_to_bucket(url):
     if '://' not in url:
@@ -268,7 +243,8 @@ class ImagenTrainer(nn.Module):
         self.fs = checkpoint_fs
 
         if not exists(self.fs):
-            self.fs = url_to_fs(default(checkpoint_path, './'), fs_kwargs)
+            fs_kwargs = default(fs_kwargs, {})
+            self.fs, _ = url_to_fs(default(checkpoint_path, './'), **fs_kwargs)
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
