@@ -36,6 +36,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/BIGJUN777">BIGJUN</a> for catching a big bug with continuous time gaussian diffusion noise level conditioning at inference time
 
+- <a href="https://github.com/animebing">Bingbing</a> for identifying a bug with sampling and order of normalizing and noising with low resolution conditioning image
+
 ## Install
 
 ```bash
