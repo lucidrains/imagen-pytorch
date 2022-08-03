@@ -643,7 +643,7 @@ class ImagenTrainer(nn.Module):
 
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
-            optimizer_key = f'scaler{ind}'
+            optimizer_key = f'optim{ind}'
             scheduler_key = f'scheduler{ind}'
             warmup_scheduler_key = f'warmup{ind}'
 
@@ -708,7 +708,7 @@ class ImagenTrainer(nn.Module):
 
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
-            optimizer_key = f'scaler{ind}'
+            optimizer_key = f'optim{ind}'
             scheduler_key = f'scheduler{ind}'
             warmup_scheduler_key = f'warmup{ind}'
 
