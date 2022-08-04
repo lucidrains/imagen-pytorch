@@ -221,6 +221,7 @@ class ImagenTrainer(nn.Module):
         cosine_decay_max_steps = None,
         only_train_unet_number = None,
         fp16 = False,
+        precision = None,
         split_batches = True,
         dl_tuple_output_keywords_names = ('images', 'text_embeds', 'text_masks', 'cond_images'),
         verbose = True,
@@ -257,9 +258,12 @@ class ImagenTrainer(nn.Module):
 
         accelerate_kwargs, kwargs = groupby_prefix_and_trim('accelerate_', kwargs)
 
+        assert not (fp16 and exists(precision)), 'either set fp16 = True or forward the precision ("fp16", "bf16") to Accelerator'
+        accelerator_mixed_precision = default(precision, 'fp16' if fp16 else 'no')
+
         self.accelerator = Accelerator(**{
             'split_batches': split_batches,
-            'mixed_precision': 'fp16' if fp16 else 'no',
+            'mixed_precision': accelerator_mixed_precision,
             'kwargs_handlers': [DistributedDataParallelKwargs(find_unused_parameters = True)]
         , **accelerate_kwargs})
 
