@@ -1,6 +1,6 @@
 import math
 import copy
-from typing import List
+from typing import List, Union
 from tqdm import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
@@ -22,6 +22,8 @@ from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
+
+from imagen_pytorch.imagen_video.imagen_video import Unet3D, resize_video_to
 
 # helper functions
 
@@ -1694,6 +1696,7 @@ class Imagen(nn.Module):
         text_encoder_name = DEFAULT_T5_NAME,
         text_embed_dim = None,
         channels = 3,
+        video_frames = None,
         timesteps = 1000,
         cond_drop_prob = 0.1,
         loss_type = 'l2',
@@ -1789,7 +1792,7 @@ class Imagen(nn.Module):
         self.only_train_unet_number = only_train_unet_number
 
         for ind, one_unet in enumerate(unets):
-            assert isinstance(one_unet, Unet)
+            assert isinstance(one_unet, (Unet, Unet3D))
             is_first = ind == 0
 
             one_unet = one_unet.cast_model_parameters(
@@ -1810,6 +1813,19 @@ class Imagen(nn.Module):
         assert num_unets == len(image_sizes), f'you did not supply the correct number of u-nets ({len(unets)}) for resolutions {image_sizes}'
 
         self.sample_channels = cast_tuple(self.channels, num_unets)
+
+        # determine whether we are training on images or video
+
+        is_video = any([isinstance(unet, Unet3D) for unet in self.unets])
+
+        assert not (is_video and not exists(video_frames)), 'you passed in 3d unets for learning video generation, yet you did not specify the number if video frames'
+        assert not (exists(video_frames) and video_frames < 1), 'video frames must be at least 1 or greater'
+
+        self.is_video = is_video
+        self.video_frames = video_frames
+
+        self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
+        self.resize_to = resize_video_to if is_video else resize_image_to
 
         # cascading ddpm related stuff
 
@@ -2009,8 +2025,8 @@ class Imagen(nn.Module):
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
-            inpaint_images = resize_image_to(inpaint_images, shape[-1])
-            inpaint_masks = resize_image_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+            inpaint_images = self.resize_to(inpaint_images, shape[-1])
+            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
 
         # time
 
@@ -2046,7 +2062,7 @@ class Imagen(nn.Module):
                     renoised_img = noise_scheduler.q_sample_from_to(img, times_next, times)
 
                     img = torch.where(
-                        rearrange(is_last_timestep, 'b -> b 1 1 1'),
+                        self.right_pad_dims_to_datatype(is_last_timestep),
                         img,
                         renoised_img
                     )
@@ -2114,23 +2130,25 @@ class Imagen(nn.Module):
         num_unets = len(self.unets)
         cond_scale = cast_tuple(cond_scale, num_unets)
 
+        frame_dims = (self.video_frames,) if self.is_video else tuple()
+
         for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale), disable = not use_tqdm):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
             with context:
                 lowres_cond_img = lowres_noise_times = None
-                shape = (batch_size, channel, image_size, image_size)
+                shape = (batch_size, channel, *frame_dims, image_size, image_size)
 
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
-                    lowres_cond_img = resize_image_to(img, image_size)
+                    lowres_cond_img = self.resize_to(img, image_size)
 
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
                     lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
-                shape = (batch_size, self.channels, image_size, image_size)
+                shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
                 img = self.p_sample_loop(
                     unet,
@@ -2163,6 +2181,8 @@ class Imagen(nn.Module):
         if not return_all_unet_outputs:
             outputs = outputs[-1:]
 
+        assert not self.is_video, 'converting sampled video tensor to video file is not supported yet'
+
         pil_images = list(map(lambda img: list(map(T.ToPILImage(), img.unbind(dim = 0))), outputs))
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
@@ -2185,6 +2205,8 @@ class Imagen(nn.Module):
         p2_loss_weight_gamma = 0.,
         random_crop_size = None
     ):
+        is_video = x_start.ndim == 5
+
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         # normalize to [-1, 1]
@@ -2196,6 +2218,10 @@ class Imagen(nn.Module):
         # for upsamplers
 
         if exists(random_crop_size):
+            if is_video:
+                frames = x_start.shape[2]
+                x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), 'b c f h w -> (b f) c h w')
+
             aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
 
             # make sure low res conditioner and image both get augmented the same way
@@ -2203,6 +2229,9 @@ class Imagen(nn.Module):
             x_start = aug(x_start)
             lowres_cond_img = aug(lowres_cond_img, params = aug._params)
             noise = aug(noise, params = aug._params)
+
+            if is_video:
+                x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), '(b f) c h w -> b c f h w', f = frames)
 
         # get x_t
 
@@ -2279,10 +2308,14 @@ class Imagen(nn.Module):
         target_image_size    = self.image_sizes[unet_index]
         random_crop_size     = self.random_crop_sizes[unet_index]
         prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
-        b, c, h, w, device,  = *images.shape, images.device
 
-        check_shape(images, 'b c h w', c = self.channels)
+        b, c, *_, h, w, device, is_video = *images.shape, images.device, images.ndim == 5
+
+        check_shape(images, 'b c ...', c = self.channels)
         assert h >= target_image_size and w >= target_image_size
+
+        frames = images.shape[2] if is_video else None
+        assert not (is_video and frames != self.video_frames)
 
         times = noise_scheduler.sample_random_times(b, device = device)
 
@@ -2304,8 +2337,8 @@ class Imagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range)
-            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(images, prev_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(b, device = device)
@@ -2313,6 +2346,6 @@ class Imagen(nn.Module):
                 lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
                 lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = b)
 
-        images = resize_image_to(images, target_image_size)
+        images = self.resize_to(images, target_image_size)
 
         return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size)
