@@ -462,6 +462,10 @@ Not at the moment but one will likely be trained and open sourced within the yea
 
 More the reason why you should start training your own model, starting today! The last thing we need is this technology being in the hands of an elite few. Hopefully this repository reduces the work to just finding the necessary compute, and augmenting with your own curated dataset.
 
+- What am I allowed to do with this repository?
+
+Anything! It is MIT licensed. In other words, you can freely copy / paste for your own research, remixed for whatever modality you can think of. Go train amazing models for profit, for science, or simply to satiate your own personal pleasure at witnessing something divine unravel in front of you.
+
 ## Related Works
 
 - <a href="https://github.com/archinetai/audio-diffusion-pytorch">Audio diffusion</a> from <a href="https://github.com/flavioschneider">Flavio Schneider</a>
@@ -503,6 +507,7 @@ More the reason why you should start training your own model, starting today! Th
 - [ ] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time. also consider frame dropouts during attention for achieving both regularizing effect as well as shortened training time
 - [ ] allow for imagen and elucidated imagen to generalize to any shape
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
+- [ ] offer challenging moving mnist (with distractor objects) as a one-line trainable baseline for researchers to branch off of for text to video
 - [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
@@ -601,11 +606,11 @@ More the reason why you should start training your own model, starting today! Th
 
 ```bibtex
 @misc{ho2022video,
-  title   = {Video Diffusion Models}, 
-  author  = {Jonathan Ho and Tim Salimans and Alexey Gritsenko and William Chan and Mohammad Norouzi and David J. Fleet},
-  year    = {2022},
-  eprint  = {2204.03458},
-  archivePrefix = {arXiv},
-  primaryClass = {cs.CV}
+    title   = {Video Diffusion Models},
+    author  = {Jonathan Ho and Tim Salimans and Alexey Gritsenko and William Chan and Mohammad Norouzi and David J. Fleet},
+    year    = {2022},
+    eprint  = {2204.03458},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
 }
 ```
