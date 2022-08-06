@@ -498,10 +498,13 @@ More the reason why you should start training your own model, starting today! Th
 - [x] build a simple checkpointing system, backed by a folder
 - [x] add skip connection from outputs of all upsample blocks, used in unet squared paper and some previous unet works
 - [x] add fsspec, recommended by Romain @rom1504, for cloud / local file system agnostic persistence of checkpoints
-- [ ] test out persistence in gcs with https://github.com/fsspec/gcsfs
+- [x] test out persistence in gcs with https://github.com/fsspec/gcsfs
+- [x] extend to video generation, using axial time attention as in Ho's video ddpm paper
+- [ ] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time. also consider frame dropouts during attention for achieving both regularizing effect as well as shortened training time
+- [ ] allow for imagen and elucidated imagen to generalize to any shape
+- [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
 - [ ] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
-- [ ] extend to video generation, using axial time attention as in Ho's video ddpm paper + https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch for up to 25 minute video
 - [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
 - [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
 
@@ -593,5 +596,16 @@ More the reason why you should start training your own model, starting today! Th
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2201.09865}
+}
+```
+
+```bibtex
+@misc{ho2022video,
+  title   = {Video Diffusion Models}, 
+  author  = {Jonathan Ho and Tim Salimans and Alexey Gritsenko and William Chan and Mohammad Norouzi and David J. Fleet},
+  year    = {2022},
+  eprint  = {2204.03458},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.CV}
 }
 ```
