@@ -504,8 +504,9 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] add fsspec, recommended by Romain @rom1504, for cloud / local file system agnostic persistence of checkpoints
 - [x] test out persistence in gcs with https://github.com/fsspec/gcsfs
 - [x] extend to video generation, using axial time attention as in Ho's video ddpm paper
+- [x] allow elucidated imagen to generalize to any shape
 - [ ] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time. also consider frame dropouts during attention for achieving both regularizing effect as well as shortened training time
-- [ ] allow for imagen and elucidated imagen to generalize to any shape
+- [ ] allow for imagen to generalize to any shape
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
 - [ ] make sure inpainting works with video
 - [ ] offer challenging moving mnist (with distractor objects) as a one-line trainable baseline for researchers to branch off of for text to video

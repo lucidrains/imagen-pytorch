@@ -134,31 +134,28 @@ def masked_mean(t, *, dim, mask = None):
 
     return masked_t.sum(dim = dim) / denom.clamp(min = 1e-5)
 
-def resize_image_to(
-    image,
+def resize_video_to(
+    video,
     target_image_size,
     clamp_range = None
 ):
-    orig_image_size = image.shape[-1]
+    orig_video_size = video.shape[-1]
 
-    if orig_image_size == target_image_size:
-        return image
+    if orig_video_size == target_image_size:
+        return video
 
-    out = F.interpolate(image, target_image_size, mode = 'nearest')
+
+    frames = video.shape[2]
+    video = rearrange(video, 'b c f h w -> (b f) c h w')
+
+    out = F.interpolate(video, target_image_size, mode = 'nearest')
 
     if exists(clamp_range):
         out = out.clamp(*clamp_range)
 
+    out = rearrange(out, '(b f) c h w -> b c f h w', f = frames)
+        
     return out
-
-# image normalization functions
-# ddpms expect images to be in the range of -1 to 1
-
-def normalize_neg_one_to_one(img):
-    return img * 2 - 1
-
-def unnormalize_zero_to_one(normed_img):
-    return (normed_img + 1) * 0.5
 
 # classifier free guidance functions
 
@@ -961,7 +958,7 @@ class UpsampleCombiner(nn.Module):
         if not self.enabled or len(fmaps) == 0 or len(self.fmap_convs) == 0:
             return x
 
-        fmaps = [resize_image_to(fmap, target_size) for fmap in fmaps]
+        fmaps = [resize_video_to(fmap, target_size) for fmap in fmaps]
         outs = [conv(fmap) for fmap, conv in zip(fmaps, self.fmap_convs)]
         return torch.cat((x, *outs), dim = 1)
 
@@ -1394,7 +1391,7 @@ class Unet3D(nn.Module):
 
         if exists(cond_images):
             assert cond_images.shape[1] == self.cond_images_channels, 'the number of channels on the conditioning image you are passing in does not match what you specified on initialiation of the unet'
-            cond_images = resize_image_to(cond_images, x.shape[-1])
+            cond_images = resize_video_to(cond_images, x.shape[-1])
             x = torch.cat((cond_images, x), dim = 1)
 
         # initial convolution
