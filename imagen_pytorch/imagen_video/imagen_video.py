@@ -1022,7 +1022,7 @@ class Unet3D(nn.Module):
         attn_heads = 8,
         ff_mult = 2.,
         lowres_cond = False,                # for cascading diffusion - https://cascaded-diffusion.github.io/
-        layer_attns = True,
+        layer_attns = False,
         layer_attns_depth = 1,
         layer_attns_add_text_cond = True,   # whether to condition the self-attention blocks with the text embeddings, as described in Appendix D.3.1
         attend_at_middle = True,            # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)

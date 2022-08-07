@@ -400,7 +400,7 @@ inpainted_images = trainer.sample(texts = [
     'a whale breaching from afar',
     'young girl blowing out candles on her birthday cake',
     'fireworks with blue and green sparkles',
-    'fireworks with blue and green sparkles'
+    'dust motes swirling in the morning sunshine on the windowsill'
 ], inpaint_images = inpaint_images, inpaint_masks = inpaint_masks, cond_scale = 5.)
 
 inpainted_images # (4, 3, 512, 512)
@@ -437,6 +437,66 @@ imagen = ElucidatedImagen(
 ).cuda()
 
 # rest is the same as above
+
+```
+
+## Text to Video (ongoing research)
+
+This repository will also start accumulating new research around text guided video synthesis. For starters it will adopt the 3d unet architecture described by Jonathan Ho in <a href="https://arxiv.org/abs/2204.03458">Video Diffusion Models</a>
+
+Ex.
+
+```python
+import torch
+from imagen_pytorch import Unet3D, ElucidatedImagen, ImagenTrainer
+
+unet1 = Unet3D(dim = 64, dim_mults = (1, 2, 4, 8)).cuda()
+
+unet2 = Unet3D(dim = 64, dim_mults = (1, 2, 4, 8)).cuda()
+
+# elucidated imagen, which contains the unets above (base unet and super resoluting ones)
+
+imagen = ElucidatedImagen(
+    video_frames = 10,                          # this determines how many video frames are generated at sample time
+    unets = (unet1, unet2),
+    image_sizes = (16, 32),
+    random_crop_sizes = (None, 16),
+    num_sample_steps = 10,
+    cond_drop_prob = 0.1,
+    sigma_min = 0.002,                          # min noise level
+    sigma_max = (80, 160),                      # max noise level, double the max noise level for upsampler
+    sigma_data = 0.5,                           # standard deviation of data distribution
+    rho = 7,                                    # controls the sampling schedule
+    P_mean = -1.2,                              # mean of log-normal distribution from which noise is drawn for training
+    P_std = 1.2,                                # standard deviation of log-normal distribution from which noise is drawn for training
+    S_churn = 80,                               # parameters for stochastic sampling - depends on dataset, Table 5 in apper
+    S_tmin = 0.05,
+    S_tmax = 50,
+    S_noise = 1.003,
+).cuda()
+
+# mock videos (get a lot of this) and text encodings from large T5
+
+texts = [
+    'a whale breaching from afar',
+    'young girl blowing out candles on her birthday cake',
+    'fireworks with blue and green sparkles',
+    'dust motes swirling in the morning sunshine on the windowsill'
+]
+
+videos = torch.randn(4, 3, 10, 32, 32).cuda() # (batch, channels, time / video frames, height, width)
+
+# feed images into imagen, training each unet in the cascade
+# for this example, only training unet 1
+
+trainer = ImagenTrainer(imagen)
+trainer(videos, texts = texts, unet_number = 1)
+trainer.update(unet_number = 1)
+
+
+videos = trainer.sample(texts = texts)
+
+videos.shape # (4, 3, 10, 32, 32)
 
 ```
 
@@ -509,6 +569,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] attention bias to null key / values should be a learned scalar of head dimension
+- [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
 - [ ] frame dropouts during attention for achieving both regularizing effect as well as shortened training time
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
