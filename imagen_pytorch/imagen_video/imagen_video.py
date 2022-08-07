@@ -10,11 +10,6 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
-from torch.cuda.amp import autocast
-from torch.special import expm1
-import torchvision.transforms as T
-
-import kornia.augmentation as K
 
 from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange, Reduce
@@ -414,6 +409,7 @@ class Attention(nn.Module):
         # relative positional encoding (T5 style)
 
         if exists(attn_bias):
+            attn_bias = F.pad(attn_bias, (1, 0), value = 0.)
             sim = sim + attn_bias
 
         # masking
@@ -962,6 +958,49 @@ class UpsampleCombiner(nn.Module):
         outs = [conv(fmap) for fmap, conv in zip(fmaps, self.fmap_convs)]
         return torch.cat((x, *outs), dim = 1)
 
+class DynamicPositionBias(nn.Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        heads,
+        depth
+    ):
+        super().__init__()
+        self.mlp = nn.ModuleList([])
+
+        self.mlp.append(nn.Sequential(
+            nn.Linear(1, dim),
+            LayerNorm(dim),
+            nn.SiLU()
+        ))
+
+        for _ in range(max(depth - 1, 0)):
+            self.mlp.append(nn.Sequential(
+                nn.Linear(dim, dim),
+                LayerNorm(dim),
+                nn.SiLU()
+            ))
+
+        self.mlp.append(nn.Linear(dim, heads))
+
+    def forward(self, n, device, dtype):
+        i = torch.arange(n, device = device)
+        j = torch.arange(n, device = device)
+
+        indices = rearrange(i, 'i -> i 1') - rearrange(j, 'j -> 1 j')
+        indices += (n - 1)
+
+        pos = torch.arange(-n + 1, n, device = device, dtype = dtype)
+        pos = rearrange(pos, '... -> ... 1')
+
+        for layer in self.mlp:
+            pos = layer(pos)
+
+        bias = pos[indices]
+        bias = rearrange(bias, 'i j h -> h i j')
+        return bias
+
 class Unet3D(nn.Module):
     def __init__(
         self,
@@ -987,6 +1026,7 @@ class Unet3D(nn.Module):
         layer_attns_depth = 1,
         layer_attns_add_text_cond = True,   # whether to condition the self-attention blocks with the text embeddings, as described in Appendix D.3.1
         attend_at_middle = True,            # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
+        time_rel_pos_bias_depth = 2,
         layer_cross_attns = True,
         use_linear_attn = False,
         use_linear_cross_attn = False,
@@ -1144,6 +1184,10 @@ class Unet3D(nn.Module):
         # temporal attention - attention across video frames
 
         temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Attention(dim, **attn_kwargs))
+
+        # temporal attention relative positional encoding
+
+        self.time_rel_pos_bias = DynamicPositionBias(dim = dim * 2, heads = attn_heads, depth = time_rel_pos_bias_depth)
 
         # resnet block klass
 
@@ -1375,7 +1419,7 @@ class Unet3D(nn.Module):
         cond_images = None,
         cond_drop_prob = 0.
     ):
-        batch_size, device = x.shape[0], x.device
+        batch_size, frames, device, dtype = x.shape[0], x.shape[2], x.device, x.dtype
 
         # add low resolution conditioning, if present
 
@@ -1394,11 +1438,15 @@ class Unet3D(nn.Module):
             cond_images = resize_video_to(cond_images, x.shape[-1])
             x = torch.cat((cond_images, x), dim = 1)
 
+        # get time relative positions
+
+        time_attn_bias = self.time_rel_pos_bias(frames, device = device, dtype = dtype)
+
         # initial convolution
 
         x = self.init_conv(x)
 
-        x = self.init_temporal_attn(x)
+        x = self.init_temporal_attn(x, attn_bias = time_attn_bias)
 
         # init conv residual
 
@@ -1516,7 +1564,7 @@ class Unet3D(nn.Module):
                 hiddens.append(x)
 
             x = attn_block(x, c)
-            x = temporal_attn(x)
+            x = temporal_attn(x, attn_bias = time_attn_bias)
 
             hiddens.append(x)
 
@@ -1528,7 +1576,7 @@ class Unet3D(nn.Module):
         if exists(self.mid_attn):
             x = self.mid_attn(x)
 
-        x = self.mid_temporal_attn(x)
+        x = self.mid_temporal_attn(x, attn_bias = time_attn_bias)
 
         x = self.mid_block2(x, t, c)
 
@@ -1545,7 +1593,7 @@ class Unet3D(nn.Module):
                 x = resnet_block(x, t)
 
             x = attn_block(x, c)
-            x = temporal_attn(x)
+            x = temporal_attn(x, attn_bias = time_attn_bias)
 
             up_hiddens.append(x.contiguous())
             x = upsample(x)

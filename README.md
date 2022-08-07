@@ -506,8 +506,11 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] extend to video generation, using axial time attention as in Ho's video ddpm paper
 - [x] allow elucidated imagen to generalize to any shape
 - [x] allow for imagen to generalize to any shape
-- [ ] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time. also consider frame dropouts during attention for achieving both regularizing effect as well as shortened training time
+- [x] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
+- [ ] attention bias to null key / values should be a learned scalar of head dimension
+- [ ] consider bringing in NUWA's 3d convolutional attention
+- [ ] frame dropouts during attention for achieving both regularizing effect as well as shortened training time
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
 - [ ] make sure inpainting works with video
 - [ ] offer challenging moving mnist (with distractor objects) as a one-line trainable baseline for researchers to branch off of for text to video
