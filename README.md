@@ -457,7 +457,6 @@ unet2 = Unet3D(dim = 64, dim_mults = (1, 2, 4, 8)).cuda()
 # elucidated imagen, which contains the unets above (base unet and super resoluting ones)
 
 imagen = ElucidatedImagen(
-    video_frames = 10,                          # this determines how many video frames are generated at sample time
     unets = (unet1, unet2),
     image_sizes = (16, 32),
     random_crop_sizes = (None, 16),
@@ -493,10 +492,9 @@ trainer = ImagenTrainer(imagen)
 trainer(videos, texts = texts, unet_number = 1)
 trainer.update(unet_number = 1)
 
+videos = trainer.sample(texts = texts, video_frames = 20) # extrapolating to 20 frames from training on 10 frames
 
-videos = trainer.sample(texts = texts)
-
-videos.shape # (4, 3, 10, 32, 32)
+videos.shape # (4, 3, 20, 32, 32)
 
 ```
 

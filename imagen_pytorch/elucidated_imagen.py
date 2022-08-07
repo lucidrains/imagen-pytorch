@@ -77,7 +77,6 @@ class ElucidatedImagen(nn.Module):
         text_encoder_name = DEFAULT_T5_NAME,
         text_embed_dim = None,
         channels = 3,
-        video_frames = None,
         cond_drop_prob = 0.1,
         random_crop_sizes = None,
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
@@ -155,12 +154,7 @@ class ElucidatedImagen(nn.Module):
         # determine whether we are training on images or video
 
         is_video = any([isinstance(unet, Unet3D) for unet in self.unets])
-
-        assert not (is_video and not exists(video_frames)), 'you passed in 3d unets for learning video generation, yet you did not specify the number if video frames'
-        assert not (exists(video_frames) and video_frames < 1), 'video frames must be at least 1 or greater'
-
         self.is_video = is_video
-        self.video_frames = video_frames
 
         self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
         self.resize_to = resize_video_to if is_video else resize_image_to
@@ -489,6 +483,7 @@ class ElucidatedImagen(nn.Module):
         cond_images = None,
         inpaint_images = None,
         inpaint_masks = None,
+        video_frames = None,
         inpaint_resample_times = 5,
         batch_size = 1,
         cond_scale = 1.,
@@ -532,7 +527,9 @@ class ElucidatedImagen(nn.Module):
         num_unets = len(self.unets)
         cond_scale = cast_tuple(cond_scale, num_unets)
 
-        frame_dims = (self.video_frames,) if self.is_video else tuple()
+        assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
+
+        frame_dims = (video_frames,) if self.is_video else tuple()
 
         for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale), disable = not use_tqdm):
 
@@ -631,7 +628,6 @@ class ElucidatedImagen(nn.Module):
         check_shape(images, 'b c ...', c = self.channels)
 
         assert h >= target_image_size and w >= target_image_size
-        assert not (is_video and frames != self.video_frames)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'

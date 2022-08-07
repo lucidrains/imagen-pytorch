@@ -1419,6 +1419,8 @@ class Unet3D(nn.Module):
         cond_images = None,
         cond_drop_prob = 0.
     ):
+        assert x.ndim == 5, 'input to 3d unet must have 5 dimensions (batch, channels, time, height, width)'
+
         batch_size, frames, device, dtype = x.shape[0], x.shape[2], x.device, x.dtype
 
         # add low resolution conditioning, if present

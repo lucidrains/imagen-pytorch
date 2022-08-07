@@ -1696,7 +1696,6 @@ class Imagen(nn.Module):
         text_encoder_name = DEFAULT_T5_NAME,
         text_embed_dim = None,
         channels = 3,
-        video_frames = None,
         timesteps = 1000,
         cond_drop_prob = 0.1,
         loss_type = 'l2',
@@ -2084,6 +2083,7 @@ class Imagen(nn.Module):
         texts: List[str] = None,
         text_masks = None,
         text_embeds = None,
+        video_frames = None,
         cond_images = None,
         inpaint_images = None,
         inpaint_masks = None,
@@ -2130,7 +2130,9 @@ class Imagen(nn.Module):
         num_unets = len(self.unets)
         cond_scale = cast_tuple(cond_scale, num_unets)
 
-        frame_dims = (self.video_frames,) if self.is_video else tuple()
+        assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
+
+        frame_dims = (video_frames,) if self.is_video else tuple()
 
         for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale), disable = not use_tqdm):
 
@@ -2315,7 +2317,6 @@ class Imagen(nn.Module):
         assert h >= target_image_size and w >= target_image_size
 
         frames = images.shape[2] if is_video else None
-        assert not (is_video and frames != self.video_frames)
 
         times = noise_scheduler.sample_random_times(b, device = device)
 
