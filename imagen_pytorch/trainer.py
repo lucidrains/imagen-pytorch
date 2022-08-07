@@ -626,7 +626,13 @@ class ImagenTrainer(nn.Module):
 
     # saving and loading functions
 
-    def save(self, path, overwrite = True, **kwargs):
+    def save(
+        self,
+        path,
+        overwrite = True,
+        without_optim_and_sched = False,
+        **kwargs
+    ):
         self.accelerator.wait_for_everyone()
 
         if not self.can_checkpoint:
@@ -645,7 +651,9 @@ class ImagenTrainer(nn.Module):
             **kwargs
         )
 
-        for ind in range(0, self.num_unets):
+        save_optim_and_sched_iter = range(0, self.num_unets) if not without_optim_and_sched else tuple()
+
+        for ind in save_optim_and_sched_iter:
             scaler_key = f'scaler{ind}'
             optimizer_key = f'optim{ind}'
             scheduler_key = f'scheduler{ind}'
@@ -721,17 +729,18 @@ class ImagenTrainer(nn.Module):
             scheduler = getattr(self, scheduler_key)
             warmup_scheduler = getattr(self, warmup_scheduler_key)
 
-            if exists(scheduler):
+            if exists(scheduler) and scheduler_key in loaded_obj:
                 scheduler.load_state_dict(loaded_obj[scheduler_key])
 
-            if exists(warmup_scheduler):
+            if exists(warmup_scheduler) and warmup_scheduler_key in loaded_obj:
                 warmup_scheduler.load_state_dict(loaded_obj[warmup_scheduler_key])
 
-            try:
-                optimizer.load_state_dict(loaded_obj[optimizer_key])
-                scaler.load_state_dict(loaded_obj[scaler_key])
-            except:
-                self.print('could not load optimizer and scaler, possibly because you have turned on mixed precision training since the last run. resuming with new optimizer and scalers')
+            if exists(optimizer):
+                try:
+                    optimizer.load_state_dict(loaded_obj[optimizer_key])
+                    scaler.load_state_dict(loaded_obj[scaler_key])
+                except:
+                    self.print('could not load optimizer and scaler, possibly because you have turned on mixed precision training since the last run. resuming with new optimizer and scalers')
 
         if self.use_ema:
             assert 'ema' in loaded_obj
