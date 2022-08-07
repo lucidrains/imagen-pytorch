@@ -1816,12 +1816,7 @@ class Imagen(nn.Module):
         # determine whether we are training on images or video
 
         is_video = any([isinstance(unet, Unet3D) for unet in self.unets])
-
-        assert not (is_video and not exists(video_frames)), 'you passed in 3d unets for learning video generation, yet you did not specify the number if video frames'
-        assert not (exists(video_frames) and video_frames < 1), 'video frames must be at least 1 or greater'
-
         self.is_video = is_video
-        self.video_frames = video_frames
 
         self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
         self.resize_to = resize_video_to if is_video else resize_image_to
