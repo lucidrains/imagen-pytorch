@@ -581,6 +581,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
 - [ ] bring in reversible blocks from revnets for 3d unet, to lessen memory burden
 - [ ] add ability to only train super-resolution network
+- [ ] read <a href="https://arxiv.org/abs/2206.00927v1">dpm-solver</a> see if it is applicable to continuous time gaussian diffusion
 
 ## Citations
 
