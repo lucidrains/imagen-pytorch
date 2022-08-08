@@ -4,9 +4,9 @@ from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
 from enum import Enum
 
 from imagen_pytorch.imagen_pytorch import Imagen, Unet
+from imagen_pytorch.imagen_video import Unet3D
 from imagen_pytorch.trainer import ImagenTrainer
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
-
 from imagen_pytorch.t5 import DEFAULT_T5_NAME, get_encoded_dim
 
 # helper functions
@@ -48,8 +48,20 @@ class UnetConfig(AllowExtraBaseModel):
     def create(self):
         return Unet(**self.dict())
 
+class Unet3DConfig(AllowExtraBaseModel):
+    dim:                int
+    dim_mults:          ListOrTuple(int)
+    text_embed_dim:     int = get_encoded_dim(DEFAULT_T5_NAME)
+    cond_dim:           int = None
+    channels:           int = 3
+    attn_dim_head:      int = 32
+    attn_heads:         int = 16
+
+    def create(self):
+        return Unet3D(**self.dict())
+
 class ImagenConfig(AllowExtraBaseModel):
-    unets:                  ListOrTuple(UnetConfig)
+    unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig])
     image_sizes:            ListOrTuple(int)
     timesteps:              SingleOrList(int) = 1000
     noise_schedules:        SingleOrList(NoiseSchedule) = 'cosine'
@@ -76,7 +88,7 @@ class ImagenConfig(AllowExtraBaseModel):
         return imagen
 
 class ElucidatedImagenConfig(AllowExtraBaseModel):
-    unets:                  ListOrTuple(UnetConfig)
+    unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig])
     image_sizes:            ListOrTuple(int)
     text_encoder_name:      str = DEFAULT_T5_NAME
     channels:               int = 3
