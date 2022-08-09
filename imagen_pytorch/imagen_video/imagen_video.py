@@ -350,11 +350,14 @@ class Attention(nn.Module):
         *,
         dim_head = 64,
         heads = 8,
+        causal = False,
         context_dim = None,
         cosine_sim_attn = False
     ):
         super().__init__()
         self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
+        self.causal = causal
+
         self.cosine_sim_attn = cosine_sim_attn
         self.cosine_sim_scale = 16 if cosine_sim_attn else 1
 
@@ -415,6 +418,11 @@ class Attention(nn.Module):
         # masking
 
         max_neg_value = -torch.finfo(sim.dtype).max
+
+        if self.causal:
+            i, j = sim.shape[-2:]
+            causal_mask = torch.ones((i, j), device = device, dtype = torch.bool).triu(j - i + 1)
+            sim = sim.masked_fill(causal_mask, max_neg_value)
 
         if exists(mask):
             mask = F.pad(mask, (1, 0), value = True)
@@ -1027,6 +1035,7 @@ class Unet3D(nn.Module):
         layer_attns_add_text_cond = True,   # whether to condition the self-attention blocks with the text embeddings, as described in Appendix D.3.1
         attend_at_middle = True,            # whether to have a layer of attention at the bottleneck (can turn off for higher resolution in cascading DDPM, before bringing in efficient attention)
         time_rel_pos_bias_depth = 2,
+        time_causal_attn = True,
         layer_cross_attns = True,
         use_linear_attn = False,
         use_linear_cross_attn = False,
@@ -1183,7 +1192,7 @@ class Unet3D(nn.Module):
 
         # temporal attention - attention across video frames
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Attention(dim, **attn_kwargs))
+        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn}))
 
         # temporal attention relative positional encoding
 

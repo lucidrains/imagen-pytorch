@@ -3,8 +3,7 @@ from pydantic import BaseModel, validator, root_validator
 from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
 from enum import Enum
 
-from imagen_pytorch.imagen_pytorch import Imagen, Unet
-from imagen_pytorch.imagen_video import Unet3D
+from imagen_pytorch.imagen_pytorch import Imagen, Unet, Unet3D
 from imagen_pytorch.trainer import ImagenTrainer
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 from imagen_pytorch.t5 import DEFAULT_T5_NAME, get_encoded_dim
@@ -63,6 +62,7 @@ class Unet3DConfig(AllowExtraBaseModel):
 class ImagenConfig(AllowExtraBaseModel):
     unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig])
     image_sizes:            ListOrTuple(int)
+    video:                  bool = False
     timesteps:              SingleOrList(int) = 1000
     noise_schedules:        SingleOrList(NoiseSchedule) = 'cosine'
     text_encoder_name:      str = DEFAULT_T5_NAME
@@ -79,9 +79,11 @@ class ImagenConfig(AllowExtraBaseModel):
 
     def create(self):
         decoder_kwargs = self.dict()
-        decoder_kwargs.pop('unets')
+        unets_kwargs = decoder_kwargs.pop('unets')
 
-        unets = [unet.create() for unet in self.unets]
+        unet_klass = Unet3D if self.video else Unet
+
+        unets = [unet_klass(**unet_kwargs) for unet_kwargs in unets_kwargs]
         imagen = Imagen(unets, **decoder_kwargs)
 
         imagen._config = self.dict().copy()
@@ -90,6 +92,7 @@ class ImagenConfig(AllowExtraBaseModel):
 class ElucidatedImagenConfig(AllowExtraBaseModel):
     unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig])
     image_sizes:            ListOrTuple(int)
+    video:                  bool = False
     text_encoder_name:      str = DEFAULT_T5_NAME
     channels:               int = 3
     cond_drop_prob:         float = 0.5
@@ -114,9 +117,11 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
 
     def create(self):
         decoder_kwargs = self.dict()
-        decoder_kwargs.pop('unets')
+        unets_kwargs = decoder_kwargs.pop('unets')
 
-        unets = [unet.create() for unet in self.unets]
+        unet_klass = Unet3D if self.video else Unet
+
+        unets = [unet_klass(**unet_kwargs) for unet_kwargs in unets_kwargs]
         imagen = ElucidatedImagen(unets, **decoder_kwargs)
 
         imagen._config = self.dict().copy()
@@ -125,6 +130,7 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
 class ImagenTrainerConfig(AllowExtraBaseModel):
     imagen:                 dict
     elucidated:             bool = False
+    video:                  bool = False
     use_ema:                bool = True
     lr:                     SingleOrList(float) = 1e-4
     eps:                    SingleOrList(float) = 1e-8
@@ -142,6 +148,6 @@ class ImagenTrainerConfig(AllowExtraBaseModel):
         elucidated = trainer_kwargs.pop('elucidated')
 
         imagen_config_klass = ElucidatedImagenConfig if elucidated else ImagenConfig
-        imagen = imagen_config_klass(**imagen_config).create()
+        imagen = imagen_config_klass(**{**imagen_config, 'video': video}).create()
 
         return ImagenTrainer(imagen, **trainer_kwargs)
