@@ -369,6 +369,8 @@ class ElucidatedImagen(nn.Module):
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
+        init_images = None,
+        skip_steps = None,
         **kwargs
     ):
         # get specific sampling hyperparameters for unet
@@ -393,6 +395,11 @@ class ElucidatedImagen(nn.Module):
 
         images = init_sigma * torch.randn(shape, device = self.device)
 
+        # initializing with an image
+
+        if exists(init_images):
+            images += init_images
+
         # prepare inpainting images and mask
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
@@ -414,6 +421,9 @@ class ElucidatedImagen(nn.Module):
         )
 
         # gradually denoise
+
+        initial_step = default(skip_steps, 0)
+        sigmas_and_gammas = sigmas_and_gammas[initial_step:]
 
         total_steps = len(sigmas_and_gammas)
 
@@ -483,8 +493,10 @@ class ElucidatedImagen(nn.Module):
         cond_images = None,
         inpaint_images = None,
         inpaint_masks = None,
-        video_frames = None,
         inpaint_resample_times = 5,
+        init_images = None,
+        skip_steps = None,
+        video_frames = None,
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
@@ -527,11 +539,22 @@ class ElucidatedImagen(nn.Module):
         num_unets = len(self.unets)
         cond_scale = cast_tuple(cond_scale, num_unets)
 
+        # handle video and frame dimension
+
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
         frame_dims = (video_frames,) if self.is_video else tuple()
 
-        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale), disable = not use_tqdm):
+        # initializing with an image or video
+
+        init_images = cast_tuple(init_images, num_unets)
+        init_images = [maybe(self.normalize_img)(init_image) for init_image in init_images]
+
+        skip_steps = cast_tuple(skip_steps, num_unets)
+
+        # go through each unet in cascade
+
+        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -548,6 +571,9 @@ class ElucidatedImagen(nn.Module):
 
                     lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
+                if exists(unet_init_images):
+                    unet_init_images = self.resize_to(unet_init_images, image_size)
+
                 shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
                 img = self.one_unet_sample(
@@ -560,6 +586,8 @@ class ElucidatedImagen(nn.Module):
                     inpaint_images = inpaint_images,
                     inpaint_masks = inpaint_masks,
                     inpaint_resample_times = inpaint_resample_times,
+                    init_images = unet_init_images,
+                    skip_steps = unet_skip_steps,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,

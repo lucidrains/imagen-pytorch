@@ -2002,6 +2002,8 @@ class Imagen(nn.Module):
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
+        init_images = None,
+        skip_steps = None,
         cond_scale = 1,
         pred_objective = 'noise',
         dynamic_threshold = True,
@@ -2011,6 +2013,11 @@ class Imagen(nn.Module):
 
         batch = shape[0]
         img = torch.randn(shape, device = device)
+
+        # for initialization with an image or video
+
+        if exists(init_images):
+            img += init_images
 
         # prepare inpainting
 
@@ -2025,6 +2032,11 @@ class Imagen(nn.Module):
         # time
 
         timesteps = noise_scheduler.get_sampling_timesteps(batch, device = device)
+
+        # whether to skip any steps
+
+        skip_steps = default(skip_steps, 0)
+        timesteps = timesteps[skip_steps:]
 
         for times, times_next in tqdm(timesteps, desc = 'sampling loop time step', total = len(timesteps), disable = not use_tqdm):
             is_last_timestep = times_next == 0
@@ -2083,6 +2095,8 @@ class Imagen(nn.Module):
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
+        init_images = None,
+        skip_steps = None,
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
@@ -2123,13 +2137,27 @@ class Imagen(nn.Module):
         lowres_sample_noise_level = default(lowres_sample_noise_level, self.lowres_sample_noise_level)
 
         num_unets = len(self.unets)
+
+        # condition scaling
+
         cond_scale = cast_tuple(cond_scale, num_unets)
+
+        # add frame dimension for video
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
         frame_dims = (video_frames,) if self.is_video else tuple()
 
-        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale), disable = not use_tqdm):
+        # for initial image and skipping steps
+
+        init_images = cast_tuple(init_images, num_unets)
+        init_images = [maybe(self.normalize_img)(init_image) for init_image in init_images]
+
+        skip_steps = cast_tuple(skip_steps, num_unets)
+
+        # go through each unet in cascade
+
+        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -2145,6 +2173,9 @@ class Imagen(nn.Module):
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
                     lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
+                if exists(unet_init_images):
+                    unet_init_images = self.resize_to(unet_init_images, image_size)
+
                 shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
                 img = self.p_sample_loop(
@@ -2156,6 +2187,8 @@ class Imagen(nn.Module):
                     inpaint_images = inpaint_images,
                     inpaint_masks = inpaint_masks,
                     inpaint_resample_times = inpaint_resample_times,
+                    init_images = unet_init_images,
+                    skip_steps = unet_skip_steps,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
