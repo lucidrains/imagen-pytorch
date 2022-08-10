@@ -583,6 +583,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add ability to only train super-resolution network
 - [ ] read <a href="https://arxiv.org/abs/2206.00927v1">dpm-solver</a> see if it is applicable to continuous time gaussian diffusion
 - [ ] allow for conditioning video frames with arbitrary absolute times (calculate RPE during temporal attention)
+- [ ] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
 
 ## Citations
 
