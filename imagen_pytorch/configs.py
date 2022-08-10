@@ -80,8 +80,9 @@ class ImagenConfig(AllowExtraBaseModel):
     def create(self):
         decoder_kwargs = self.dict()
         unets_kwargs = decoder_kwargs.pop('unets')
+        is_video = decoder_kwargs.pop('video', False)
 
-        unet_klass = Unet3D if self.video else Unet
+        unet_klass = Unet3D if is_video else Unet
 
         unets = [unet_klass(**unet_kwargs) for unet_kwargs in unets_kwargs]
         imagen = Imagen(unets, **decoder_kwargs)
@@ -118,8 +119,9 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
     def create(self):
         decoder_kwargs = self.dict()
         unets_kwargs = decoder_kwargs.pop('unets')
+        is_video = decoder_kwargs.pop('video', False)
 
-        unet_klass = Unet3D if self.video else Unet
+        unet_klass = Unet3D if is_video else Unet
 
         unets = [unet_klass(**unet_kwargs) for unet_kwargs in unets_kwargs]
         imagen = ElucidatedImagen(unets, **decoder_kwargs)
