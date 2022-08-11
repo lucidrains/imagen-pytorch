@@ -30,6 +30,7 @@ from ema_pytorch import EMA
 
 from accelerate import Accelerator, DistributedType, DistributedDataParallelKwargs
 
+from fsspec.core import url_to_fs
 from fsspec.implementations.local import LocalFileSystem
 
 # helper functions
@@ -87,32 +88,13 @@ def num_to_groups(num, divisor):
 
 # url to fs, bucket, path - for checkpointing to cloud
 
-def url_to_fs(url, fs_kwargs = None):
-    fs_kwargs = default(fs_kwargs, {})
-
-    if '://' not in url:
-        return LocalFileSystem(**{'auto_mkdir': True, **fs_kwargs})
-
-    prefix, _ = url.split('://')
-
-    if prefix == 'gs':
-        try:
-            from gcsfs import GCSFileSystem
-        except:
-            print('you need to install gcsfs using conda to use google storage to backup your checkpoints - `conda install -c conda-forge gcsfs`')
-            exit()
-
-        return GCSFileSystem(**fs_kwargs)
-    else:
-        raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
-
 def url_to_bucket(url):
     if '://' not in url:
         return url
 
     _, suffix = url.split('://')
 
-    if prefix == 'gs':
+    if prefix in {'gs', 's3'}:
         return suffix.split('/')[0]
     else:
         raise ValueError(f'storage type prefix "{prefix}" is not supported yet')
@@ -239,6 +221,7 @@ class ImagenTrainer(nn.Module):
         cosine_decay_max_steps = None,
         only_train_unet_number = None,
         fp16 = False,
+        precision = None,
         split_batches = True,
         dl_tuple_output_keywords_names = ('images', 'text_embeds', 'text_masks', 'cond_images'),
         verbose = True,
@@ -258,7 +241,11 @@ class ImagenTrainer(nn.Module):
 
         # determine filesystem, using fsspec, for saving to local filesystem or cloud
 
-        self.fs = default(checkpoint_fs, lambda: url_to_fs(checkpoint_path, fs_kwargs))
+        self.fs = checkpoint_fs
+
+        if not exists(self.fs):
+            fs_kwargs = default(fs_kwargs, {})
+            self.fs, _ = url_to_fs(default(checkpoint_path, './'), **fs_kwargs)
 
         assert isinstance(imagen, (Imagen, ElucidatedImagen))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
@@ -271,9 +258,12 @@ class ImagenTrainer(nn.Module):
 
         accelerate_kwargs, kwargs = groupby_prefix_and_trim('accelerate_', kwargs)
 
+        assert not (fp16 and exists(precision)), 'either set fp16 = True or forward the precision ("fp16", "bf16") to Accelerator'
+        accelerator_mixed_precision = default(precision, 'fp16' if fp16 else 'no')
+
         self.accelerator = Accelerator(**{
             'split_batches': split_batches,
-            'mixed_precision': 'fp16' if fp16 else 'no',
+            'mixed_precision': accelerator_mixed_precision,
             'kwargs_handlers': [DistributedDataParallelKwargs(find_unused_parameters = True)]
         , **accelerate_kwargs})
 
@@ -636,7 +626,13 @@ class ImagenTrainer(nn.Module):
 
     # saving and loading functions
 
-    def save(self, path, overwrite = True, **kwargs):
+    def save(
+        self,
+        path,
+        overwrite = True,
+        without_optim_and_sched = False,
+        **kwargs
+    ):
         self.accelerator.wait_for_everyone()
 
         if not self.can_checkpoint:
@@ -655,9 +651,11 @@ class ImagenTrainer(nn.Module):
             **kwargs
         )
 
-        for ind in range(0, self.num_unets):
+        save_optim_and_sched_iter = range(0, self.num_unets) if not without_optim_and_sched else tuple()
+
+        for ind in save_optim_and_sched_iter:
             scaler_key = f'scaler{ind}'
-            optimizer_key = f'scaler{ind}'
+            optimizer_key = f'optim{ind}'
             scheduler_key = f'scheduler{ind}'
             warmup_scheduler_key = f'warmup{ind}'
 
@@ -722,7 +720,7 @@ class ImagenTrainer(nn.Module):
 
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
-            optimizer_key = f'scaler{ind}'
+            optimizer_key = f'optim{ind}'
             scheduler_key = f'scheduler{ind}'
             warmup_scheduler_key = f'warmup{ind}'
 
@@ -731,17 +729,18 @@ class ImagenTrainer(nn.Module):
             scheduler = getattr(self, scheduler_key)
             warmup_scheduler = getattr(self, warmup_scheduler_key)
 
-            if exists(scheduler):
+            if exists(scheduler) and scheduler_key in loaded_obj:
                 scheduler.load_state_dict(loaded_obj[scheduler_key])
 
-            if exists(warmup_scheduler):
+            if exists(warmup_scheduler) and warmup_scheduler_key in loaded_obj:
                 warmup_scheduler.load_state_dict(loaded_obj[warmup_scheduler_key])
 
-            try:
-                optimizer.load_state_dict(loaded_obj[optimizer_key])
-                scaler.load_state_dict(loaded_obj[scaler_key])
-            except:
-                self.print('could not load optimizer and scaler, possibly because you have turned on mixed precision training since the last run. resuming with new optimizer and scalers')
+            if exists(optimizer):
+                try:
+                    optimizer.load_state_dict(loaded_obj[optimizer_key])
+                    scaler.load_state_dict(loaded_obj[scaler_key])
+                except:
+                    self.print('could not load optimizer and scaler, possibly because you have turned on mixed precision training since the last run. resuming with new optimizer and scalers')
 
         if self.use_ema:
             assert 'ema' in loaded_obj
