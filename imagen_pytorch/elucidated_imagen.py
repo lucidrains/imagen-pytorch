@@ -371,15 +371,20 @@ class ElucidatedImagen(nn.Module):
         inpaint_resample_times = 5,
         init_images = None,
         skip_steps = None,
+        sigma_min = None,
+        sigma_max = None,
         **kwargs
     ):
         # get specific sampling hyperparameters for unet
 
         hp = self.hparams[unet_number - 1]
 
+        sigma_min = default(sigma_min, hp.sigma_min)
+        sigma_max = default(sigma_max, hp.sigma_max)
+
         # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
 
-        sigmas = self.sample_schedule(hp.num_sample_steps, hp.rho, hp.sigma_min, hp.sigma_max)
+        sigmas = self.sample_schedule(hp.num_sample_steps, hp.rho, sigma_min, sigma_max)
 
         gammas = torch.where(
             (sigmas >= hp.S_tmin) & (sigmas <= hp.S_tmax),
@@ -496,6 +501,8 @@ class ElucidatedImagen(nn.Module):
         inpaint_resample_times = 5,
         init_images = None,
         skip_steps = None,
+        sigma_min = None,
+        sigma_max = None,
         video_frames = None,
         batch_size = 1,
         cond_scale = 1.,
@@ -552,9 +559,12 @@ class ElucidatedImagen(nn.Module):
 
         skip_steps = cast_tuple(skip_steps, num_unets)
 
+        sigma_min = cast_tuple(sigma_min, num_unets)
+        sigma_max = cast_tuple(sigma_max, num_unets)
+
         # go through each unet in cascade
 
-        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
+        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -588,6 +598,8 @@ class ElucidatedImagen(nn.Module):
                     inpaint_resample_times = inpaint_resample_times,
                     init_images = unet_init_images,
                     skip_steps = unet_skip_steps,
+                    sigma_min = unet_sigma_min,
+                    sigma_max = unet_sigma_max,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
