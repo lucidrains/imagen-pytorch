@@ -1,7 +1,7 @@
 from math import sqrt
 from functools import partial
 from contextlib import contextmanager, nullcontext
-from typing import List
+from typing import List, Union
 from collections import namedtuple
 from tqdm import tqdm
 
@@ -14,6 +14,7 @@ import torchvision.transforms as T
 import kornia.augmentation as K
 
 from einops import rearrange, repeat, reduce
+from einops_exts import rearrange_many
 
 from imagen_pytorch.imagen_pytorch import (
     GaussianDiffusionContinuousTimes,
@@ -33,6 +34,11 @@ from imagen_pytorch.imagen_pytorch import (
     module_device,
     normalize_neg_one_to_one,
     unnormalize_zero_to_one,
+)
+
+from imagen_pytorch.imagen_video.imagen_video import (
+    Unet3D,
+    resize_video_to
 )
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
@@ -132,7 +138,7 @@ class ElucidatedImagen(nn.Module):
         self.unet_being_trained_index = -1 # keeps track of which unet is being trained at the moment
 
         for ind, one_unet in enumerate(unets):
-            assert isinstance(one_unet, Unet)
+            assert isinstance(one_unet, (Unet, Unet3D))
             is_first = ind == 0
 
             one_unet = one_unet.cast_model_parameters(
@@ -144,6 +150,14 @@ class ElucidatedImagen(nn.Module):
             )
 
             self.unets.append(one_unet)
+
+        # determine whether we are training on images or video
+
+        is_video = any([isinstance(unet, Unet3D) for unet in self.unets])
+        self.is_video = is_video
+
+        self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
+        self.resize_to = resize_video_to if is_video else resize_image_to
 
         # unet image sizes
 
@@ -305,7 +319,7 @@ class ElucidatedImagen(nn.Module):
         if isinstance(sigma, float):
             sigma = torch.full((batch,), sigma, device = device)
 
-        padded_sigma = rearrange(sigma, 'b -> b 1 1 1')
+        padded_sigma = self.right_pad_dims_to_datatype(sigma)
 
         net_out = unet_forward(
             self.c_in(sigma_data, padded_sigma) * noised_images,
@@ -355,15 +369,22 @@ class ElucidatedImagen(nn.Module):
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
+        init_images = None,
+        skip_steps = None,
+        sigma_min = None,
+        sigma_max = None,
         **kwargs
     ):
         # get specific sampling hyperparameters for unet
 
         hp = self.hparams[unet_number - 1]
 
+        sigma_min = default(sigma_min, hp.sigma_min)
+        sigma_max = default(sigma_max, hp.sigma_max)
+
         # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
 
-        sigmas = self.sample_schedule(hp.num_sample_steps, hp.rho, hp.sigma_min, hp.sigma_max)
+        sigmas = self.sample_schedule(hp.num_sample_steps, hp.rho, sigma_min, sigma_max)
 
         gammas = torch.where(
             (sigmas >= hp.S_tmin) & (sigmas <= hp.S_tmax),
@@ -379,6 +400,11 @@ class ElucidatedImagen(nn.Module):
 
         images = init_sigma * torch.randn(shape, device = self.device)
 
+        # initializing with an image
+
+        if exists(init_images):
+            images += init_images
+
         # prepare inpainting images and mask
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
@@ -386,8 +412,8 @@ class ElucidatedImagen(nn.Module):
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
-            inpaint_images = resize_image_to(inpaint_images, shape[-1])
-            inpaint_masks = resize_image_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+            inpaint_images = self.resize_to(inpaint_images, shape[-1])
+            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
 
         # unet kwargs
 
@@ -400,6 +426,9 @@ class ElucidatedImagen(nn.Module):
         )
 
         # gradually denoise
+
+        initial_step = default(skip_steps, 0)
+        sigmas_and_gammas = sigmas_and_gammas[initial_step:]
 
         total_steps = len(sigmas_and_gammas)
 
@@ -470,6 +499,11 @@ class ElucidatedImagen(nn.Module):
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
+        init_images = None,
+        skip_steps = None,
+        sigma_min = None,
+        sigma_max = None,
+        video_frames = None,
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
@@ -512,23 +546,45 @@ class ElucidatedImagen(nn.Module):
         num_unets = len(self.unets)
         cond_scale = cast_tuple(cond_scale, num_unets)
 
-        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale), disable = not use_tqdm):
+        # handle video and frame dimension
+
+        assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
+
+        frame_dims = (video_frames,) if self.is_video else tuple()
+
+        # initializing with an image or video
+
+        init_images = cast_tuple(init_images, num_unets)
+        init_images = [maybe(self.normalize_img)(init_image) for init_image in init_images]
+
+        skip_steps = cast_tuple(skip_steps, num_unets)
+
+        sigma_min = cast_tuple(sigma_min, num_unets)
+        sigma_max = cast_tuple(sigma_max, num_unets)
+
+        # go through each unet in cascade
+
+        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
             with context:
                 lowres_cond_img = lowres_noise_times = None
-                shape = (batch_size, channel, image_size, image_size)
+
+                shape = (batch_size, channel, *frame_dims, image_size, image_size)
 
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
-                    lowres_cond_img = resize_image_to(img, image_size)
-                    lowres_cond_img = maybe(self.normalize_img)(lowres_cond_img)
+                    lowres_cond_img = self.resize_to(img, image_size)
+                    lowres_cond_img = self.normalize_img(lowres_cond_img)
 
                     lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
-                shape = (batch_size, self.channels, image_size, image_size)
+                if exists(unet_init_images):
+                    unet_init_images = self.resize_to(unet_init_images, image_size)
+
+                shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
                 img = self.one_unet_sample(
                     unet,
@@ -540,6 +596,10 @@ class ElucidatedImagen(nn.Module):
                     inpaint_images = inpaint_images,
                     inpaint_masks = inpaint_masks,
                     inpaint_resample_times = inpaint_resample_times,
+                    init_images = unet_init_images,
+                    skip_steps = unet_skip_steps,
+                    sigma_min = unet_sigma_min,
+                    sigma_max = unet_sigma_max,
                     cond_scale = unet_cond_scale,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
@@ -560,6 +620,8 @@ class ElucidatedImagen(nn.Module):
         if not return_all_unet_outputs:
             outputs = outputs[-1:]
 
+        assert not self.is_video, 'automatically converting video tensor to video file for saving is not built yet'
+
         pil_images = list(map(lambda img: list(map(T.ToPILImage(), img.unbind(dim = 0))), outputs))
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
@@ -575,7 +637,7 @@ class ElucidatedImagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Unet = None,
+        unet: Union[Unet, Unet3D] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -599,9 +661,12 @@ class ElucidatedImagen(nn.Module):
         prev_image_size      = self.image_sizes[unet_index - 1] if unet_index > 0 else None
         hp                   = self.hparams[unet_index]
 
-        batch_size, c, h, w, device,  = *images.shape, images.device
+        batch_size, c, *_, h, w, device, is_video = *images.shape, images.device, (images.ndim == 5)
 
-        check_shape(images, 'b c h w', c = self.channels)
+        frames = images.shape[2] if is_video else None
+
+        check_shape(images, 'b c ...', c = self.channels)
+
         assert h >= target_image_size and w >= target_image_size
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
@@ -622,8 +687,8 @@ class ElucidatedImagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = resize_image_to(images, prev_image_size, clamp_range = self.input_image_range)
-            lowres_cond_img = resize_image_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(images, prev_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(batch_size, device = device)
@@ -631,7 +696,7 @@ class ElucidatedImagen(nn.Module):
                 lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
                 lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = batch_size)
 
-        images = resize_image_to(images, target_image_size)
+        images = self.resize_to(images, target_image_size)
 
         # normalize to [-1, 1]
 
@@ -644,10 +709,16 @@ class ElucidatedImagen(nn.Module):
         if exists(random_crop_size):
             aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
 
+            if is_video:
+                images, lowres_cond_img = rearrange_many((images, lowres_cond_img), 'b c f h w -> (b f) c h w')
+
             # make sure low res conditioner and image both get augmented the same way
             # detailed https://kornia.readthedocs.io/en/latest/augmentation.module.html?highlight=randomcrop#kornia.augmentation.RandomCrop
             images = aug(images)
             lowres_cond_img = aug(lowres_cond_img, params = aug._params)
+
+            if is_video:
+                images, lowres_cond_img = rearrange_many((images, lowres_cond_img), '(b f) c h w -> b c f h w', f = frames)
 
         # noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
@@ -659,7 +730,7 @@ class ElucidatedImagen(nn.Module):
         # get the sigmas
 
         sigmas = self.noise_distribution(hp.P_mean, hp.P_std, batch_size)
-        padded_sigmas = rearrange(sigmas, 'b -> b 1 1 1')
+        padded_sigmas = self.right_pad_dims_to_datatype(sigmas)
 
         # noise
 
