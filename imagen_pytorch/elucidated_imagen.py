@@ -19,6 +19,7 @@ from einops_exts import rearrange_many
 from imagen_pytorch.imagen_pytorch import (
     GaussianDiffusionContinuousTimes,
     Unet,
+    NullUnet,
     first,
     exists,
     identity,
@@ -138,7 +139,7 @@ class ElucidatedImagen(nn.Module):
         self.unet_being_trained_index = -1 # keeps track of which unet is being trained at the moment
 
         for ind, one_unet in enumerate(unets):
-            assert isinstance(one_unet, (Unet, Unet3D))
+            assert isinstance(one_unet, (Unet, Unet3D, NullUnet))
             is_first = ind == 0
 
             one_unet = one_unet.cast_model_parameters(
@@ -507,6 +508,8 @@ class ElucidatedImagen(nn.Module):
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
+        start_at_unet_number = 1,
+        start_image_or_video = None,
         stop_at_unet_number = None,
         return_all_unet_outputs = False,
         return_pil_images = False,
@@ -562,9 +565,23 @@ class ElucidatedImagen(nn.Module):
         sigma_min = cast_tuple(sigma_min, num_unets)
         sigma_max = cast_tuple(sigma_max, num_unets)
 
+        # handle starting at a unet greater than 1, for training only-upscaler training
+
+        if start_at_unet_number > 1:
+            assert start_at_unet_number <= num_unets, 'must start a unet that is less than the total number of unets'
+            assert not exists(stop_at_unet_number) or start_at_unet_number <= stop_at_unet_number
+            assert exists(start_image_or_video), 'starting image or video must be supplied if only doing upscaling'
+
+            prev_image_size = self.image_sizes[start_at_unet_number - 2]
+            img = self.resize_to(start_image_or_video, prev_image_size)
+
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
+            if unet_number < start_at_unet_number:
+                continue
+
+            assert not isinstance(unet, NullUnet), 'cannot sample from null unet'
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -637,7 +654,7 @@ class ElucidatedImagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Union[Unet, Unet3D] = None,
+        unet: Union[Unet, Unet3D, NullUnet] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -655,6 +672,8 @@ class ElucidatedImagen(nn.Module):
         unet_index = unet_number - 1
         
         unet = default(unet, lambda: self.get_unet(unet_number))
+
+        assert not isinstance(unet, NullUnet), 'null unet cannot and should not be trained'
 
         target_image_size    = self.image_sizes[unet_index]
         random_crop_size     = self.random_crop_sizes[unet_index]

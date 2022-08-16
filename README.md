@@ -243,6 +243,62 @@ trainer.update(unet_number = 1)
 images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
 ```
 
+Or train only super-resoluting unets
+
+```python
+import torch
+from imagen_pytorch import Unet, NullUnet, Imagen
+
+# unet for imagen
+
+unet1 = NullUnet()  # add a placeholder "null" unet for the base unet
+
+unet2 = Unet(
+    dim = 32,
+    cond_dim = 512,
+    dim_mults = (1, 2, 4, 8),
+    num_resnet_blocks = (2, 4, 8, 8),
+    layer_attns = (False, False, False, True),
+    layer_cross_attns = (False, False, False, True)
+)
+
+# imagen, which contains the unets above (base unet and super resoluting ones)
+
+imagen = Imagen(
+    unets = (unet1, unet2),
+    image_sizes = (64, 256),
+    timesteps = 250,
+    cond_drop_prob = 0.1
+).cuda()
+
+# mock images (get a lot of this) and text encodings from large T5
+
+text_embeds = torch.randn(4, 256, 768).cuda()
+images = torch.randn(4, 3, 256, 256).cuda()
+
+# feed images into imagen, training each unet in the cascade
+
+loss = imagen(images, text_embeds = text_embeds, unet_number = 2)
+loss.backward()
+
+# do the above for many many many many steps
+# now you can sample an image based on the text embeddings as well as low resolution images
+
+lowres_images = torch.randn(3, 3, 64, 64).cuda()  # starting un-resoluted images
+
+images = imagen.sample(
+    texts = [
+        'a whale breaching from afar',
+        'young girl blowing out candles on her birthday cake',
+        'fireworks with blue and green sparkles'
+    ],
+    start_at_unet_number = 2,              # start at unet number 2
+    start_image_or_video = lowres_images,  # pass in low resolution images to be resoluted
+    cond_scale = 3.)
+
+images.shape # (3, 3, 256, 256)
+```
+
 At any time you can save and load the trainer and all associated states with the `save` and `load` methods. It is recommended you use these methods instead of manually saving with a `state_dict` call, as there are some device memory management being done underneath the hood within the trainer.
 
 ex.

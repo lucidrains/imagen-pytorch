@@ -17,7 +17,7 @@ from torch.cuda.amp import autocast, GradScaler
 
 import pytorch_warmup as warmup
 
-from imagen_pytorch.imagen_pytorch import Imagen
+from imagen_pytorch.imagen_pytorch import Imagen, NullUnet
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 from imagen_pytorch.data import cycle
 
@@ -486,12 +486,16 @@ class ImagenTrainer(nn.Module):
         return self.steps[unet_number - 1].item()
 
     def print_untrained_unets(self):
-        for ind, steps in enumerate(self.steps.tolist()):
-            if steps > 0:
-                continue
-            self.print(f'unet {ind + 1} has not been trained')
+        print_final_error = False
 
-        if torch.any(self.steps == 0):
+        for ind, (steps, unet) in enumerate(zip(self.steps.tolist(), self.imagen.unets)):
+            if steps > 0 or isinstance(unet, NullUnet):
+                continue
+
+            self.print(f'unet {ind + 1} has not been trained')
+            print_final_error = True
+
+        if print_final_error:
             self.print('when sampling, you can pass stop_at_unet_number to stop early in the cascade, so it does not try to generate with untrained unets')
 
     # data related functions

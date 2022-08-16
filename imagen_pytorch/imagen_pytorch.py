@@ -1641,6 +1641,20 @@ class Unet(nn.Module):
 
         return self.final_conv(x)
 
+# null unet
+
+class NullUnet(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.lowres_cond = False
+        self.dummy_parameter = nn.Parameter(torch.tensor([0.]))
+
+    def cast_model_parameters(self, *args, **kwargs):
+        return self
+
+    def forward(self, x, *args, **kwargs):
+        return x
+
 # predefined unets, with configs lining up with hyperparameters in appendix of paper
 
 class BaseUnet64(Unet):
@@ -1791,7 +1805,7 @@ class Imagen(nn.Module):
         self.only_train_unet_number = only_train_unet_number
 
         for ind, one_unet in enumerate(unets):
-            assert isinstance(one_unet, (Unet, Unet3D))
+            assert isinstance(one_unet, (Unet, Unet3D, NullUnet))
             is_first = ind == 0
 
             one_unet = one_unet.cast_model_parameters(
@@ -2100,6 +2114,8 @@ class Imagen(nn.Module):
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
+        start_at_unet_number = 1,
+        start_image_or_video = None,
         stop_at_unet_number = None,
         return_all_unet_outputs = False,
         return_pil_images = False,
@@ -2155,9 +2171,24 @@ class Imagen(nn.Module):
 
         skip_steps = cast_tuple(skip_steps, num_unets)
 
+        # handle starting at a unet greater than 1, for training only-upscaler training
+
+        if start_at_unet_number > 1:
+            assert start_at_unet_number <= num_unets, 'must start a unet that is less than the total number of unets'
+            assert not exists(stop_at_unet_number) or start_at_unet_number <= stop_at_unet_number
+            assert exists(start_image_or_video), 'starting image or video must be supplied if only doing upscaling'
+
+            prev_image_size = self.image_sizes[start_at_unet_number - 2]
+            img = self.resize_to(start_image_or_video, prev_image_size)
+
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
+
+            if unet_number < start_at_unet_number:
+                continue
+
+            assert not isinstance(unet, NullUnet), 'one cannot sample from null / placeholder unets'
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -2313,7 +2344,7 @@ class Imagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Unet = None,
+        unet: Union[Unet, Unet3D, NullUnet] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -2331,6 +2362,8 @@ class Imagen(nn.Module):
         unet_index = unet_number - 1
         
         unet = default(unet, lambda: self.get_unet(unet_number))
+
+        assert not isinstance(unet, NullUnet), 'null unet cannot and should not be trained'
 
         noise_scheduler      = self.noise_schedulers[unet_index]
         p2_loss_weight_gamma = self.p2_loss_weight_gamma[unet_index]
