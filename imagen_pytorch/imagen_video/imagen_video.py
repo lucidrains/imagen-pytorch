@@ -458,6 +458,15 @@ def Conv2d(dim_in, dim_out, kernel, stride = 1, padding = 0, **kwargs):
 
     return nn.Conv3d(dim_in, dim_out, kernel, stride = stride, padding = padding, **kwargs)
 
+class Pad(nn.Module):
+    def __init__(self, padding, value = 0.):
+        super().__init__()
+        self.padding = padding
+        self.value = value
+
+    def forward(self, x):
+        return F.pad(x, self.padding, value = self.value)
+
 # decoder
 
 def Upsample(dim, dim_out = None):
@@ -1192,7 +1201,9 @@ class Unet3D(nn.Module):
 
         # temporal attention - attention across video frames
 
-        temporal_peg = lambda dim: Residual(nn.Conv3d(dim, dim, (3, 1, 1), padding = (1, 0, 0), groups = dim))
+        temporal_peg_padding = (0, 0, 0, 0, 2, 0) if time_causal_attn else (0, 0, 0, 0, 1, 1)
+        temporal_peg = lambda dim: Residual(nn.Sequential(Pad(temporal_peg_padding), nn.Conv3d(dim, dim, (3, 1, 1), groups = dim)))
+
         temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn})))
 
         # temporal attention relative positional encoding
