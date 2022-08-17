@@ -746,3 +746,13 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     primaryClass = {cs.CV}
 }
 ```
+
+```bibtex
+@inproceedings{rogozhnikov2022einops,
+    title   = {Einops: Clear and Reliable Tensor Manipulations with Einstein-like Notation},
+    author  = {Alex Rogozhnikov},
+    booktitle = {International Conference on Learning Representations},
+    year    = {2022},
+    url     = {https://openreview.net/forum?id=oapKSVM2bcj}
+}
+```
