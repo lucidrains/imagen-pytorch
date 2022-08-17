@@ -631,6 +631,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
 - [ ] consider transformer-xl memories in the temporal attention blocks
+- [ ] consider <a href="github.com/lucidrains/perceiver-ar-pytorch">perceiver-ar approach</a> to attending to past time
 - [ ] frame dropouts during attention for achieving both regularizing effect as well as shortened training time
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
 - [ ] make sure inpainting works with video
