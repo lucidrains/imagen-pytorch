@@ -584,6 +584,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 
 - <a href="https://github.com/archinetai/audio-diffusion-pytorch">Audio diffusion</a> from <a href="https://github.com/flavioschneider">Flavio Schneider</a>
 
+- <a href="https://github.com/AssemblyAI-Examples/MinImagen">Mini Imagen</a> from <a href="https://github.com/oconnoob">Ryan O.</a> | <a href="https://www.assemblyai.com/blog/build-your-own-imagen-text-to-image-model/">AssemblyAI writeup</a>
+
 ## Todo
 
 - [x] use huggingface transformers for T5-small text embeddings
