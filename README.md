@@ -627,6 +627,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time
 - [x] move video frames to sample function, as we will be attempting time extrapolation
 - [x] attention bias to null key / values should be a learned scalar of head dimension
+- [x] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
@@ -644,7 +645,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add ability to only train super-resolution network
 - [ ] read <a href="https://arxiv.org/abs/2206.00927v1">dpm-solver</a> see if it is applicable to continuous time gaussian diffusion
 - [ ] allow for conditioning video frames with arbitrary absolute times (calculate RPE during temporal attention)
-- [ ] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
 
 ## Citations
 
