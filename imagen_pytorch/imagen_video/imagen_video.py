@@ -1070,6 +1070,7 @@ class Unet3D(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         cosine_sim_attn = False,
+        self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
@@ -1088,12 +1089,16 @@ class Unet3D(nn.Module):
         self._locals.pop('self', None)
         self._locals.pop('__class__', None)
 
+        self.self_cond = self_cond
+
         # determine dimensions
 
         self.channels = channels
         self.channels_out = default(channels_out, channels)
 
-        init_channels = channels if not lowres_cond else channels * 2 # in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (1) in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (2) in self conditioning, one appends the predict x0 (x_start)
+        init_channels = channels * (1 + int(lowres_cond) + int(self_cond))
         init_dim = default(init_dim, dim)
 
         # optional image conditioning
@@ -1445,11 +1450,18 @@ class Unet3D(nn.Module):
         text_embeds = None,
         text_mask = None,
         cond_images = None,
+        self_cond = None,
         cond_drop_prob = 0.
     ):
         assert x.ndim == 5, 'input to 3d unet must have 5 dimensions (batch, channels, time, height, width)'
 
         batch_size, frames, device, dtype = x.shape[0], x.shape[2], x.device, x.dtype
+
+        # add self conditioning if needed
+
+        if self.self_cond:
+            self_cond = default(self_cond, lambda: torch.zeros_like(x))
+            x = torch.cat((x, self_cond), dim = 1)
 
         # add low resolution conditioning, if present
 

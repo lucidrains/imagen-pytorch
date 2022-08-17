@@ -757,3 +757,14 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     url     = {https://openreview.net/forum?id=oapKSVM2bcj}
 }
 ```
+
+```bibtex
+@misc{chen2022analog,
+    title   = {Analog Bits: Generating Discrete Data using Diffusion Models with Self-Conditioning},
+    author  = {Ting Chen and Ruixiang Zhang and Geoffrey Hinton},
+    year    = {2022},
+    eprint  = {2208.04202},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```

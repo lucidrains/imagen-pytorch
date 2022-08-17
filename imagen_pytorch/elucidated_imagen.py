@@ -1,4 +1,5 @@
 from math import sqrt
+from random import random
 from functools import partial
 from contextlib import contextmanager, nullcontext
 from typing import List, Union
@@ -406,6 +407,10 @@ class ElucidatedImagen(nn.Module):
         if exists(init_images):
             images += init_images
 
+        # keeping track of x0, for self conditioning if needed
+
+        x_start = None
+
         # prepare inpainting images and mask
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
@@ -448,6 +453,8 @@ class ElucidatedImagen(nn.Module):
 
                 images_hat = images + added_noise
 
+                self_cond = x_start if unet.self_cond else None
+
                 if has_inpainting:
                     images_hat = images_hat * ~inpaint_masks + (inpaint_images + added_noise) * inpaint_masks
 
@@ -455,6 +462,7 @@ class ElucidatedImagen(nn.Module):
                     unet.forward_with_cond_scale,
                     images_hat,
                     sigma_hat,
+                    self_cond = self_cond,
                     **unet_kwargs
                 )
 
@@ -465,10 +473,13 @@ class ElucidatedImagen(nn.Module):
                 # second order correction, if not the last timestep
 
                 if sigma_next != 0:
+                    self_cond = model_output if unet.self_cond else None
+
                     model_output_next = self.preconditioned_network_forward(
                         unet.forward_with_cond_scale,
                         images_next,
                         sigma_next,
+                        self_cond = self_cond,
                         **unet_kwargs
                     )
 
@@ -481,6 +492,8 @@ class ElucidatedImagen(nn.Module):
                     # renoise in repaint and then resample
                     repaint_noise = torch.randn(shape, device = self.device)
                     images = images + (sigma - sigma_next) * repaint_noise
+
+                x_start = model_output  # save model output for self conditioning
 
         images = images.clamp(-1., 1.)
 
@@ -756,12 +769,9 @@ class ElucidatedImagen(nn.Module):
         noise = torch.randn_like(images)
         noised_images = images + padded_sigmas * noise  # alphas are 1. in the paper
 
-        # get prediction
+        # unet kwargs
 
-        denoised_images = self.preconditioned_network_forward(
-            unet.forward,
-            noised_images,
-            sigmas,
+        unet_kwargs = dict(
             sigma_data = hp.sigma_data,
             text_embeds = text_embeds,
             text_mask = text_masks,
@@ -769,6 +779,28 @@ class ElucidatedImagen(nn.Module):
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+        )
+
+        # self conditioning - https://arxiv.org/abs/2208.04202 - training will be 25% slower
+
+        if unet.self_cond and random() < 0.5:
+            with torch.no_grad():
+                pred_x0 = self.preconditioned_network_forward(
+                    unet.forward,
+                    noised_images,
+                    sigmas,
+                    **unet_kwargs
+                ).detach()
+
+            unet_kwargs = {**unet_kwargs, 'self_cond': pred_x0}
+
+        # get prediction
+
+        denoised_images = self.preconditioned_network_forward(
+            unet.forward,
+            noised_images,
+            sigmas,
+            **unet_kwargs
         )
 
         # losses

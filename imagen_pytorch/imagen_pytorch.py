@@ -1,5 +1,6 @@
 import math
 import copy
+from random import random
 from typing import List, Union
 from tqdm import tqdm
 from functools import partial, wraps
@@ -1100,6 +1101,7 @@ class Unet(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         cosine_sim_attn = False,
+        self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
@@ -1123,8 +1125,12 @@ class Unet(nn.Module):
         self.channels = channels
         self.channels_out = default(channels_out, channels)
 
-        init_channels = channels if not lowres_cond else channels * 2 # in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (1) in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (2) in self conditioning, one appends the predict x0 (x_start)
+        init_channels = channels * (1 + int(lowres_cond) + int(self_cond))
         init_dim = default(init_dim, dim)
+
+        self.self_cond = self_cond
 
         # optional image conditioning
 
@@ -1455,9 +1461,16 @@ class Unet(nn.Module):
         text_embeds = None,
         text_mask = None,
         cond_images = None,
+        self_cond = None,
         cond_drop_prob = 0.
     ):
         batch_size, device = x.shape[0], x.device
+
+        # condition on self
+
+        if self.self_cond:
+            self_cond = default(self_cond, lambda: torch.zeros_like(x))
+            x = torch.cat((x, self_cond), dim = 1)
 
         # add low resolution conditioning, if present
 
@@ -1973,7 +1986,8 @@ class Imagen(nn.Module):
         else:
             x_start.clamp_(-1., 1.)
 
-        return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
+        mean_and_variance = noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
+        return mean_and_variance, x_start
 
     @torch.no_grad()
     def p_sample(
@@ -1994,12 +2008,13 @@ class Imagen(nn.Module):
         dynamic_threshold = True
     ):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
+        (model_mean, _, model_log_variance), x_start = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
         noise = torch.randn_like(x)
         # no noise when t == 0
         is_last_sampling_timestep = (t_next == 0) if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) else (t == 0)
         nonzero_mask = (1 - is_last_sampling_timestep.float()).reshape(b, *((1,) * (len(x.shape) - 1)))
-        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+        pred = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+        return pred, x_start
 
     @torch.no_grad()
     def p_sample_loop(
@@ -2033,6 +2048,10 @@ class Imagen(nn.Module):
         if exists(init_images):
             img += init_images
 
+        # keep track of x0, for self conditioning
+
+        x_start = None
+
         # prepare inpainting
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
@@ -2062,7 +2081,9 @@ class Imagen(nn.Module):
                     noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
                     img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
 
-                img = self.p_sample(
+                self_cond = x_start if unet.self_cond else None
+
+                img, x_start = self.p_sample(
                     unet,
                     img,
                     times,
@@ -2071,6 +2092,7 @@ class Imagen(nn.Module):
                     text_mask = text_mask,
                     cond_images = cond_images,
                     cond_scale = cond_scale,
+                    self_cond = self_cond,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
                     noise_scheduler = noise_scheduler,
@@ -2306,17 +2328,41 @@ class Imagen(nn.Module):
             lowres_aug_times = default(lowres_aug_times, times)
             lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
-        # get prediction
+        # time condition
 
-        pred = unet.forward(
-            x_noisy,
-            noise_scheduler.get_condition(times),
+        noise_cond = noise_scheduler.get_condition(times)
+
+        # unet kwargs
+
+        unet_kwargs = dict(
             text_embeds = text_embeds,
             text_mask = text_mask,
             cond_images = cond_images,
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+        )
+
+        # self condition if needed
+
+        if unet.self_cond and random() < 0.5:
+            with torch.no_grad():
+                pred = unet.forward(
+                    x_noisy,
+                    noise_cond,
+                    **unet_kwargs
+                ).detach()
+
+                x_start = noise_scheduler.predict_start_from_noise(x_noisy, t = times, noise = pred) if pred_objective == 'noise' else pred
+
+                unet_kwargs = {**unet_kwargs, 'self_cond': x_start}
+
+        # get prediction
+
+        pred = unet.forward(
+            x_noisy,
+            noise_cond,
+            **unet_kwargs
         )
 
         # prediction objective
