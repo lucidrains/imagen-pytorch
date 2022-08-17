@@ -1192,7 +1192,8 @@ class Unet3D(nn.Module):
 
         # temporal attention - attention across video frames
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn}))
+        temporal_peg = lambda dim: Residual(nn.Conv3d(dim, dim, (3, 1, 1), padding = (1, 0, 0), groups = dim))
+        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn})))
 
         # temporal attention relative positional encoding
 
@@ -1222,6 +1223,7 @@ class Unet3D(nn.Module):
 
         self.init_resnet_block = resnet_klass(init_dim, init_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], use_gca = use_global_context_attn) if memory_efficient else None
 
+        self.init_temporal_peg = temporal_peg(init_dim)
         self.init_temporal_attn = temporal_attn(init_dim)
 
         # scale for resnet skip connections
@@ -1272,6 +1274,7 @@ class Unet3D(nn.Module):
                 resnet_klass(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(current_dim, current_dim, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = current_dim, depth = layer_attn_depth, ff_mult = ff_mult, context_dim = cond_dim, **attn_kwargs),
+                temporal_peg(current_dim),
                 temporal_attn(current_dim),
                 post_downsample
             ]))
@@ -1282,6 +1285,7 @@ class Unet3D(nn.Module):
 
         self.mid_block1 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
         self.mid_attn = EinopsToAndFrom('b c f h w', 'b (f h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
+        self.mid_temporal_peg = temporal_peg(mid_dim)
         self.mid_temporal_attn = temporal_attn(mid_dim)
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
@@ -1307,6 +1311,7 @@ class Unet3D(nn.Module):
                 resnet_klass(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, depth = layer_attn_depth, ff_mult = ff_mult, context_dim = cond_dim, **attn_kwargs),
+                temporal_peg(dim_out),
                 temporal_attn(dim_out),
                 upsample_klass(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
@@ -1457,6 +1462,7 @@ class Unet3D(nn.Module):
 
         x = self.init_conv(x)
 
+        x = self.init_temporal_peg(x)
         x = self.init_temporal_attn(x, attn_bias = time_attn_bias)
 
         # init conv residual
@@ -1564,7 +1570,7 @@ class Unet3D(nn.Module):
 
         hiddens = []
 
-        for pre_downsample, init_block, resnet_blocks, attn_block, temporal_attn, post_downsample in self.downs:
+        for pre_downsample, init_block, resnet_blocks, attn_block, temporal_peg, temporal_attn, post_downsample in self.downs:
             if exists(pre_downsample):
                 x = pre_downsample(x)
 
@@ -1575,6 +1581,7 @@ class Unet3D(nn.Module):
                 hiddens.append(x)
 
             x = attn_block(x, c)
+            x = temporal_peg(x)
             x = temporal_attn(x, attn_bias = time_attn_bias)
 
             hiddens.append(x)
@@ -1587,6 +1594,7 @@ class Unet3D(nn.Module):
         if exists(self.mid_attn):
             x = self.mid_attn(x)
 
+        x = self.mid_temporal_peg(x)
         x = self.mid_temporal_attn(x, attn_bias = time_attn_bias)
 
         x = self.mid_block2(x, t, c)
@@ -1595,7 +1603,7 @@ class Unet3D(nn.Module):
 
         up_hiddens = []
 
-        for init_block, resnet_blocks, attn_block, temporal_attn, upsample in self.ups:
+        for init_block, resnet_blocks, attn_block, temporal_peg, temporal_attn, upsample in self.ups:
             x = add_skip_connection(x)
             x = init_block(x, t, c)
 
@@ -1604,6 +1612,7 @@ class Unet3D(nn.Module):
                 x = resnet_block(x, t)
 
             x = attn_block(x, c)
+            x = temporal_peg(x)
             x = temporal_attn(x, attn_bias = time_attn_bias)
 
             up_hiddens.append(x.contiguous())
