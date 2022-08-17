@@ -366,6 +366,8 @@ class Attention(nn.Module):
 
         self.norm = LayerNorm(dim)
 
+        self.null_attn_bias = nn.Parameter(torch.randn(heads))
+
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
@@ -412,7 +414,8 @@ class Attention(nn.Module):
         # relative positional encoding (T5 style)
 
         if exists(attn_bias):
-            attn_bias = F.pad(attn_bias, (1, 0), value = 0.)
+            null_attn_bias = repeat(self.null_attn_bias, 'h -> h n 1', n = n)
+            attn_bias = torch.cat((null_attn_bias, attn_bias), dim = -1)
             sim = sim + attn_bias
 
         # masking

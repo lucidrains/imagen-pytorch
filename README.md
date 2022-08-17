@@ -626,8 +626,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] allow for imagen to generalize to any shape
 - [x] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time
 - [x] move video frames to sample function, as we will be attempting time extrapolation
+- [x] attention bias to null key / values should be a learned scalar of head dimension
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
-- [ ] attention bias to null key / values should be a learned scalar of head dimension
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
 - [ ] consider transformer-xl memories in the temporal attention blocks
