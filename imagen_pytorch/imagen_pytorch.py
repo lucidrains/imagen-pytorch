@@ -1738,7 +1738,8 @@ class Imagen(nn.Module):
         p2_loss_weight_k = 1,
         dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.95,     # unsure what this was based on perusal of paper
-        only_train_unet_number = None
+        only_train_unet_number = None,
+        use_style = False
     ):
         super().__init__()
 
@@ -1883,9 +1884,15 @@ class Imagen(nn.Module):
 
         self.register_buffer('_temp', torch.tensor([0.]), persistent = False)
 
-        # default to device of unets passed in
+        if use_style:
+            self.style = self.get_style()
 
+        # default to device of unets passed in
         self.to(next(self.unets.parameters()).device)
+
+    def get_style(self):
+        self.style = torchvision.models.vgg19(pretrained=True)
+        self.style.classifier[-1] = nn.Linear(in_features=4096, out_features=1024, bias=True)
 
     @property
     def device(self):
@@ -2125,6 +2132,7 @@ class Imagen(nn.Module):
     @eval_decorator
     def sample(
         self,
+        styles = None,
         texts: List[str] = None,
         text_masks = None,
         text_embeds = None,
@@ -2169,6 +2177,15 @@ class Imagen(nn.Module):
 
         assert not (exists(inpaint_images) ^ exists(inpaint_masks)),  'inpaint images and masks must be both passed in to do inpainting'
 
+        if styles is not None:
+            style_embed = self.style(styles)
+            style_embed = torch.reshape(style_embed, (style_embed.shape[0], 1, style_embed.shape[-1]))
+            if not self.unconditional:
+                text_embeds = torch.cat((text_embeds, style_embed), dim=1)
+                text_masks = torch.cat((text_masks, torch.ones((text_masks.shape[0], 1), dtype=torch.bool).to(self.device)), dim=1)
+            else:
+                text_embeds = style_embed
+                text_masks = torch.ones((text_embeds.shape[0], 1), dtype=torch.bool).to(self.device)
         outputs = []
 
         is_cuda = next(self.parameters()).is_cuda
@@ -2393,6 +2410,7 @@ class Imagen(nn.Module):
         self,
         images,
         unet: Union[Unet, Unet3D, NullUnet] = None,
+        styles = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -2444,6 +2462,15 @@ class Imagen(nn.Module):
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
 
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
+        if styles is not None:
+            style_embed = self.style(styles)
+            style_embed = torch.reshape(style_embed, (style_embed.shape[0], 1, style_embed.shape[-1]))
+            if not self.unconditional:
+                text_embeds = torch.cat((text_embeds, style_embed), dim=1)
+                text_masks = torch.cat((text_masks, torch.ones((text_masks.shape[0], 1), dtype=torch.bool).to(self.device)), dim=1)
+            else:
+                text_embeds = style_embed
+                text_masks = torch.ones((text_embeds.shape[0], 1), dtype=torch.bool).to(self.device)
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
