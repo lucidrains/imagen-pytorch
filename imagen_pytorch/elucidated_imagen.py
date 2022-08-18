@@ -103,6 +103,8 @@ class ElucidatedImagen(nn.Module):
     ):
         super().__init__()
 
+        self.only_train_unet_number = only_train_unet_number
+
         # conditioning hparams
 
         self.condition_on_text = condition_on_text
