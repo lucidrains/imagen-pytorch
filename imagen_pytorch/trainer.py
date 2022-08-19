@@ -737,10 +737,11 @@ class ImagenTrainer(nn.Module):
             print("Failed loading state dict. Trying partial load")
             self.imagen.load_state_dict(restore_parts(self.imagen.state_dict(),
                                                       loaded_obj['model']))
-        self.steps.copy_(loaded_obj['steps'])
 
         if only_model:
             return loaded_obj
+
+        self.steps.copy_(loaded_obj['steps'])
 
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
