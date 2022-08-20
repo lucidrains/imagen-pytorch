@@ -394,7 +394,8 @@ class PerceiverAttention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1)
+        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = attn.to(sim.dtype)
 
         out = einsum('... i j, ... j d -> ... i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)', h = h)
@@ -535,7 +536,8 @@ class Attention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1)
+        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = attn.to(sim.dtype)
 
         # aggregate values
 
@@ -778,6 +780,7 @@ class CrossAttention(nn.Module):
             sim = sim.masked_fill(~mask, max_neg_value)
 
         attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = attn.to(sim.dtype)
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
