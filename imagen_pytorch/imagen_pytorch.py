@@ -281,41 +281,26 @@ class GaussianDiffusionContinuousTimes(nn.Module):
 # norms and residuals
 
 class LayerNorm(nn.Module):
-    def __init__(self, dim, stable = False):
+    def __init__(self, feats, stable = False, dim = -1):
         super().__init__()
         self.stable = stable
-        self.g = nn.Parameter(torch.ones(dim))
+        self.dim = dim
+
+        self.g = nn.Parameter(torch.ones(feats, *((1,) * (-dim - 1))))
 
     def forward(self, x):
-        dtype = x.dtype
+        dtype, dim = x.dtype, self.dim
 
         if self.stable:
-            x = x / x.amax(dim = -1, keepdim = True).detach()
+            x = x / x.amax(dim = dim, keepdim = True).detach()
 
         eps = 1e-5 if x.dtype == torch.float32 else 1e-3
-        var = torch.var(x, dim = -1, unbiased = False, keepdim = True)
-        mean = torch.mean(x, dim = -1, keepdim = True)
+        var = torch.var(x, dim = dim, unbiased = False, keepdim = True)
+        mean = torch.mean(x, dim = dim, keepdim = True)
 
         return (x - mean) * (var + eps).rsqrt().type(dtype) * self.g.type(dtype)
 
-
-class ChanLayerNorm(nn.Module):
-    def __init__(self, dim, stable = False):
-        super().__init__()
-        self.stable = stable
-        self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
-
-    def forward(self, x):
-        dtype = x.dtype
-
-        if self.stable:
-            x = x / x.amax(dim = 1, keepdim = True).detach()
-
-        eps = 1e-5 if x.dtype == torch.float32 else 1e-3
-        var = torch.var(x, dim = 1, unbiased = False, keepdim = True)
-        mean = torch.mean(x, dim = 1, keepdim = True)
-
-        return (x - mean) * (var + eps).rsqrt().type(dtype) * self.g.type(dtype)
+ChanLayerNorm = partial(LayerNorm, dim = -3)
 
 class Always():
     def __init__(self, val):
