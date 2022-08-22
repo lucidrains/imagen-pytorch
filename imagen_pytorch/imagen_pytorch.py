@@ -237,14 +237,17 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def q_sample(self, x_start, t, noise = None):
+        dtype = x_start.dtype
+
         if isinstance(t, float):
             batch = x_start.shape[0]
-            t = torch.full((batch,), t, device = x_start.device, dtype = x_start.dtype)
+            t = torch.full((batch,), t, device = x_start.device, dtype = dtype)
 
         noise = default(noise, lambda: torch.randn_like(x_start))
-        log_snr = self.log_snr(t)
+        log_snr = self.log_snr(t).type(dtype)
         log_snr_padded_dim = right_pad_dims_to(x_start, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
+
         return alpha * x_start + sigma * noise, log_snr
 
     def q_sample_from_to(self, x_from, from_t, to_t, noise = None):
@@ -284,13 +287,17 @@ class LayerNorm(nn.Module):
         self.g = nn.Parameter(torch.ones(dim))
 
     def forward(self, x):
+        dtype = x.dtype
+
         if self.stable:
             x = x / x.amax(dim = -1, keepdim = True).detach()
 
         eps = 1e-5 if x.dtype == torch.float32 else 1e-3
         var = torch.var(x, dim = -1, unbiased = False, keepdim = True)
         mean = torch.mean(x, dim = -1, keepdim = True)
-        return (x - mean) * (var + eps).rsqrt() * self.g
+
+        return (x - mean) * (var + eps).rsqrt().type(dtype) * self.g.type(dtype)
+
 
 class ChanLayerNorm(nn.Module):
     def __init__(self, dim, stable = False):
@@ -299,13 +306,16 @@ class ChanLayerNorm(nn.Module):
         self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
 
     def forward(self, x):
+        dtype = x.dtype
+
         if self.stable:
             x = x / x.amax(dim = 1, keepdim = True).detach()
 
         eps = 1e-5 if x.dtype == torch.float32 else 1e-3
         var = torch.var(x, dim = 1, unbiased = False, keepdim = True)
         mean = torch.mean(x, dim = 1, keepdim = True)
-        return (x - mean) * (var + eps).rsqrt() * self.g
+
+        return (x - mean) * (var + eps).rsqrt().type(dtype) * self.g.type(dtype)
 
 class Always():
     def __init__(self, val):
@@ -492,6 +502,7 @@ class Attention(nn.Module):
         b, n, device = *x.shape[:2], x.device
 
         x = self.norm(x)
+
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = self.heads)

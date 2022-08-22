@@ -110,11 +110,13 @@ def eval_decorator(fn):
         return out
     return inner
 
-def cast_torch_tensor(fn):
+def cast_torch_tensor(fn, cast_fp16 = False):
     @wraps(fn)
     def inner(model, *args, **kwargs):
         device = kwargs.pop('_device', model.device)
         cast_device = kwargs.pop('_cast_device', True)
+
+        should_cast_fp16 = cast_fp16 and model.cast_half_at_training
 
         kwargs_keys = kwargs.keys()
         all_args = (*args, *kwargs.values())
@@ -123,6 +125,9 @@ def cast_torch_tensor(fn):
 
         if cast_device:
             all_args = tuple(map(lambda t: t.to(device) if exists(t) and isinstance(t, torch.Tensor) else t, all_args))
+
+        if should_cast_fp16:
+            all_args = tuple(map(lambda t: t.half() if exists(t) and isinstance(t, torch.Tensor) else t, all_args))
 
         args, kwargs_values = all_args[:split_kwargs_index], all_args[split_kwargs_index:]
         kwargs = dict(tuple(zip(kwargs_keys, kwargs_values)))
@@ -283,6 +288,10 @@ class ImagenTrainer(nn.Module):
         , **accelerate_kwargs})
 
         ImagenTrainer.locked = self.is_distributed
+
+        # cast data to fp16 at training time if needed
+
+        self.cast_half_at_training = accelerator_mixed_precision == 'fp16'
 
         # grad scaler must be managed outside of accelerator
 
@@ -928,7 +937,7 @@ class ImagenTrainer(nn.Module):
 
         return output
 
-    @cast_torch_tensor
+    @partial(cast_torch_tensor, cast_fp16 = True)
     def forward(
         self,
         *args,
