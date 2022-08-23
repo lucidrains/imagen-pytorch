@@ -127,7 +127,7 @@ def cast_torch_tensor(fn, cast_fp16 = False):
             all_args = tuple(map(lambda t: t.to(device) if exists(t) and isinstance(t, torch.Tensor) else t, all_args))
 
         if should_cast_fp16:
-            all_args = tuple(map(lambda t: t.half() if exists(t) and isinstance(t, torch.Tensor) else t, all_args))
+            all_args = tuple(map(lambda t: t.half() if exists(t) and isinstance(t, torch.Tensor) and t.dtype != torch.bool else t, all_args))
 
         args, kwargs_values = all_args[:split_kwargs_index], all_args[split_kwargs_index:]
         kwargs = dict(tuple(zip(kwargs_keys, kwargs_values)))
