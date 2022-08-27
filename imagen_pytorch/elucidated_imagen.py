@@ -28,6 +28,7 @@ from imagen_pytorch.imagen_pytorch import (
     default,
     cast_tuple,
     cast_uint8_images_to_float,
+    is_float_dtype,
     eval_decorator,
     check_shape,
     pad_tuple_to_length,
@@ -683,6 +684,8 @@ class ElucidatedImagen(nn.Module):
 
         images = cast_uint8_images_to_float(images)
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
+
+        assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
 
         unet_index = unet_number - 1
         

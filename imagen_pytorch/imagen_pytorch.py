@@ -76,6 +76,9 @@ def cast_tuple(val, length = None):
 
     return output
 
+def is_float_dtype(dtype):
+    return any([dtype == float_dtype for float_dtype in (torch.float64, torch.float32, torch.float16, torch.bfloat16)])
+
 def cast_uint8_images_to_float(images):
     if not images.dtype == torch.uint8:
         return images
@@ -2410,6 +2413,8 @@ class Imagen(nn.Module):
 
         images = cast_uint8_images_to_float(images)
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
+
+        assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
 
         unet_index = unet_number - 1
         
