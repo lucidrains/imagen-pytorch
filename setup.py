@@ -4,6 +4,13 @@ exec(open('imagen_pytorch/version.py').read())
 setup(
   name = 'imagen-pytorch',
   packages = find_packages(exclude=[]),
+  include_package_data = True,
+  entry_points={
+    'console_scripts': [
+      'imagen_pytorch = imagen_pytorch.cli:main',
+      'imagen = imagen_pytorch.cli:imagen'
+    ],
+  },
   version = __version__,
   license='MIT',
   description = 'Imagen - unprecedented photorealism × deep level of language understanding',
@@ -19,15 +26,19 @@ setup(
     'denoising-diffusion'
   ],
   install_requires=[
+    'accelerate',
     'click',
     'einops>=0.4',
     'einops-exts',
+    'ema-pytorch>=0.0.3',
+    'fsspec',
+    'kornia',
     'numpy',
     'packaging',
     'pillow',
     'pydantic',
+    'pytorch-lightning',
     'pytorch-warmup',
-    'resize-right',
     'sentencepiece',
     'torch>=1.6',
     'torchvision',
