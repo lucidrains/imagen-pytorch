@@ -269,7 +269,7 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         log_snr_padded_dim = right_pad_dims_to(x_from, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
 
-        log_snr_to = self.log_snr(from_t)
+        log_snr_to = self.log_snr(to_t)
         log_snr_padded_dim_to = right_pad_dims_to(x_from, log_snr_to)
         alpha_to, sigma_to =  log_snr_to_alpha_sigma(log_snr_padded_dim_to)
 
