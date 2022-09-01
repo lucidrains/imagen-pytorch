@@ -10,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from torch.cuda.amp import autocast
+from torch.nn.parallel import DistributedDataParallel
 import torchvision.transforms as T
 
 import kornia.augmentation as K
@@ -670,7 +671,7 @@ class ElucidatedImagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Union[Unet, Unet3D, NullUnet] = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -787,6 +788,11 @@ class ElucidatedImagen(nn.Module):
         )
 
         # self conditioning - https://arxiv.org/abs/2208.04202 - training will be 25% slower
+
+        # Because 'unet' can be an instance of DistributedDataParallel coming from the
+        # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
+        # access the member 'module' of the wrapped unet instance.
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
 
         if unet.self_cond and random() < 0.5:
             with torch.no_grad():

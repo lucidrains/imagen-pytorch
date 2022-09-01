@@ -7,10 +7,10 @@ from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
 from collections import namedtuple
 from pathlib import Path
-from torch.nn.parallel import DistributedDataParallel
 
 import torch
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel
 from torch import nn, einsum
 from torch.cuda.amp import autocast
 from torch.special import expm1
@@ -2367,10 +2367,12 @@ class Imagen(nn.Module):
         )
 
         # self condition if needed
+
         # Because 'unet' can be an instance of DistributedDataParallel coming from the
         # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
         # access the member 'module' of the wrapped unet instance.
         self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+
         if self_cond and random() < 0.5:
             with torch.no_grad():
                 pred = unet.forward(
