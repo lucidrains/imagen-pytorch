@@ -7,6 +7,7 @@ from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
 from collections import namedtuple
 from pathlib import Path
+from torch.nn.parallel import DistributedDataParallel
 
 import torch
 import torch.nn.functional as F
@@ -1556,7 +1557,7 @@ class Unet(nn.Module):
             text_tokens = self.text_to_cond(text_embeds)
 
             text_tokens = text_tokens[:, :self.max_text_len]
-            
+
             if exists(text_mask):
                 text_mask = text_mask[:, :self.max_text_len]
 
@@ -2294,7 +2295,7 @@ class Imagen(nn.Module):
 
     def p_losses(
         self,
-        unet,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
         x_start,
         times,
         *,
@@ -2366,8 +2367,11 @@ class Imagen(nn.Module):
         )
 
         # self condition if needed
-
-        if unet.self_cond and random() < 0.5:
+        # Because 'unet' can be an instance of DistributedDataParallel coming from the
+        # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
+        # access the member 'module' of the wrapped unet instance.
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+        if self_cond and random() < 0.5:
             with torch.no_grad():
                 pred = unet.forward(
                     x_noisy,
@@ -2412,7 +2416,7 @@ class Imagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Union[Unet, Unet3D, NullUnet] = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -2430,7 +2434,7 @@ class Imagen(nn.Module):
         assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
 
         unet_index = unet_number - 1
-        
+
         unet = default(unet, lambda: self.get_unet(unet_number))
 
         assert not isinstance(unet, NullUnet), 'null unet cannot and should not be trained'
