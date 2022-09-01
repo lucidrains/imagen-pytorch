@@ -2370,7 +2370,7 @@ class Imagen(nn.Module):
         # Because 'unet' can be an instance of DistributedDataParallel coming from the
         # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
         # access the member 'module' of the wrapped unet instance.
-        self_cond = unet.module.self_cond if isinstance(DistributedDataParallel) else unet
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
         if self_cond and random() < 0.5:
             with torch.no_grad():
                 pred = unet.forward(
