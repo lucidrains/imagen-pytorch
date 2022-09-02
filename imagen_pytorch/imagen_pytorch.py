@@ -1,5 +1,6 @@
 import math
 import copy
+from random import random
 from typing import List, Union
 from tqdm import tqdm
 from functools import partial, wraps
@@ -9,6 +10,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel
 from torch import nn, einsum
 from torch.cuda.amp import autocast
 from torch.special import expm1
@@ -74,6 +76,9 @@ def cast_tuple(val, length = None):
         assert len(output) == length
 
     return output
+
+def is_float_dtype(dtype):
+    return any([dtype == float_dtype for float_dtype in (torch.float64, torch.float32, torch.float16, torch.bfloat16)])
 
 def cast_uint8_images_to_float(images):
     if not images.dtype == torch.uint8:
@@ -236,14 +241,17 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def q_sample(self, x_start, t, noise = None):
+        dtype = x_start.dtype
+
         if isinstance(t, float):
             batch = x_start.shape[0]
-            t = torch.full((batch,), t, device = x_start.device, dtype = x_start.dtype)
+            t = torch.full((batch,), t, device = x_start.device, dtype = dtype)
 
         noise = default(noise, lambda: torch.randn_like(x_start))
-        log_snr = self.log_snr(t)
+        log_snr = self.log_snr(t).type(dtype)
         log_snr_padded_dim = right_pad_dims_to(x_start, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
+
         return alpha * x_start + sigma * noise, log_snr
 
     def q_sample_from_to(self, x_from, from_t, to_t, noise = None):
@@ -262,7 +270,7 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         log_snr_padded_dim = right_pad_dims_to(x_from, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
 
-        log_snr_to = self.log_snr(from_t)
+        log_snr_to = self.log_snr(to_t)
         log_snr_padded_dim_to = right_pad_dims_to(x_from, log_snr_to)
         alpha_to, sigma_to =  log_snr_to_alpha_sigma(log_snr_padded_dim_to)
 
@@ -277,34 +285,26 @@ class GaussianDiffusionContinuousTimes(nn.Module):
 # norms and residuals
 
 class LayerNorm(nn.Module):
-    def __init__(self, dim, stable = False):
+    def __init__(self, feats, stable = False, dim = -1):
         super().__init__()
         self.stable = stable
-        self.g = nn.Parameter(torch.ones(dim))
+        self.dim = dim
+
+        self.g = nn.Parameter(torch.ones(feats, *((1,) * (-dim - 1))))
 
     def forward(self, x):
+        dtype, dim = x.dtype, self.dim
+
         if self.stable:
-            x = x / x.amax(dim = -1, keepdim = True).detach()
+            x = x / x.amax(dim = dim, keepdim = True).detach()
 
         eps = 1e-5 if x.dtype == torch.float32 else 1e-3
-        var = torch.var(x, dim = -1, unbiased = False, keepdim = True)
-        mean = torch.mean(x, dim = -1, keepdim = True)
-        return (x - mean) * (var + eps).rsqrt() * self.g
+        var = torch.var(x, dim = dim, unbiased = False, keepdim = True)
+        mean = torch.mean(x, dim = dim, keepdim = True)
 
-class ChanLayerNorm(nn.Module):
-    def __init__(self, dim, stable = False):
-        super().__init__()
-        self.stable = stable
-        self.g = nn.Parameter(torch.ones(1, dim, 1, 1))
+        return (x - mean) * (var + eps).rsqrt().type(dtype) * self.g.type(dtype)
 
-    def forward(self, x):
-        if self.stable:
-            x = x / x.amax(dim = 1, keepdim = True).detach()
-
-        eps = 1e-5 if x.dtype == torch.float32 else 1e-3
-        var = torch.var(x, dim = 1, unbiased = False, keepdim = True)
-        mean = torch.mean(x, dim = 1, keepdim = True)
-        return (x - mean) * (var + eps).rsqrt() * self.g
+ChanLayerNorm = partial(LayerNorm, dim = -3)
 
 class Always():
     def __init__(self, val):
@@ -393,7 +393,8 @@ class PerceiverAttention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1)
+        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = attn.to(sim.dtype)
 
         out = einsum('... i j, ... j d -> ... i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)', h = h)
@@ -490,6 +491,7 @@ class Attention(nn.Module):
         b, n, device = *x.shape[:2], x.device
 
         x = self.norm(x)
+
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = self.heads)
@@ -534,7 +536,8 @@ class Attention(nn.Module):
 
         # attention
 
-        attn = sim.softmax(dim = -1)
+        attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = attn.to(sim.dtype)
 
         # aggregate values
 
@@ -584,8 +587,13 @@ class PixelShuffleUpsample(nn.Module):
         return self.net(x)
 
 def Downsample(dim, dim_out = None):
+    # https://arxiv.org/abs/2208.03641 shows this is the most optimal way to downsample
+    # named SP-conv in the paper, but basically a pixel unshuffle
     dim_out = default(dim_out, dim)
-    return nn.Conv2d(dim, dim_out, 4, 2, 1)
+    return nn.Sequential(
+        Rearrange('b c (h s1) (w s2) -> b (c s1 s2) h w', s1 = 2, s2 = 2),
+        nn.Conv2d(dim * 4, dim_out, 1)
+    )
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
@@ -777,6 +785,7 @@ class CrossAttention(nn.Module):
             sim = sim.masked_fill(~mask, max_neg_value)
 
         attn = sim.softmax(dim = -1, dtype = torch.float32)
+        attn = attn.to(sim.dtype)
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -1100,6 +1109,7 @@ class Unet(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         cosine_sim_attn = False,
+        self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
@@ -1123,8 +1133,12 @@ class Unet(nn.Module):
         self.channels = channels
         self.channels_out = default(channels_out, channels)
 
-        init_channels = channels if not lowres_cond else channels * 2 # in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (1) in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (2) in self conditioning, one appends the predict x0 (x_start)
+        init_channels = channels * (1 + int(lowres_cond) + int(self_cond))
         init_dim = default(init_dim, dim)
+
+        self.self_cond = self_cond
 
         # optional image conditioning
 
@@ -1243,6 +1257,9 @@ class Unet(nn.Module):
         layer_attns_depth = cast_tuple(layer_attns_depth, num_layers)
         layer_cross_attns = cast_tuple(layer_cross_attns, num_layers)
 
+        use_linear_attn = cast_tuple(use_linear_attn, num_layers)
+        use_linear_cross_attn = cast_tuple(use_linear_cross_attn, num_layers)
+
         assert all([layers == num_layers for layers in list(map(len, (resnet_groups, layer_attns, layer_cross_attns)))])
 
         # downsample klass
@@ -1266,20 +1283,24 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
-        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_attns_depth, layer_cross_attns]
+        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_attns_depth, layer_cross_attns, use_linear_attn, use_linear_cross_attn]
         reversed_layer_params = list(map(reversed, layer_params))
 
         # downsampling layers
 
         skip_connect_dims = [] # keep track of skip connection dimensions
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn, layer_use_linear_attn, layer_use_linear_cross_attn) in enumerate(zip(in_out, *layer_params)):
             is_last = ind >= (num_resolutions - 1)
 
-            layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
 
-            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else Identity)
+            if layer_attn:
+                transformer_block_klass = TransformerBlock
+            elif layer_use_linear_attn:
+                transformer_block_klass = LinearAttentionTransformerBlock
+            else:
+                transformer_block_klass = Identity
 
             current_dim = dim_in
 
@@ -1323,11 +1344,17 @@ class Unet(nn.Module):
 
         upsample_fmap_dims = []
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn, layer_use_linear_attn, layer_use_linear_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
             is_last = ind == (len(in_out) - 1)
-            layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
+
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
-            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else Identity)
+
+            if layer_attn:
+                transformer_block_klass = TransformerBlock
+            elif layer_use_linear_attn:
+                transformer_block_klass = LinearAttentionTransformerBlock
+            else:
+                transformer_block_klass = Identity
 
             skip_connect_dim = skip_connect_dims.pop()
 
@@ -1455,9 +1482,16 @@ class Unet(nn.Module):
         text_embeds = None,
         text_mask = None,
         cond_images = None,
+        self_cond = None,
         cond_drop_prob = 0.
     ):
         batch_size, device = x.shape[0], x.device
+
+        # condition on self
+
+        if self.self_cond:
+            self_cond = default(self_cond, lambda: torch.zeros_like(x))
+            x = torch.cat((x, self_cond), dim = 1)
 
         # add low resolution conditioning, if present
 
@@ -1523,7 +1557,7 @@ class Unet(nn.Module):
             text_tokens = self.text_to_cond(text_embeds)
 
             text_tokens = text_tokens[:, :self.max_text_len]
-            
+
             if exists(text_mask):
                 text_mask = text_mask[:, :self.max_text_len]
 
@@ -1640,6 +1674,20 @@ class Unet(nn.Module):
             x = torch.cat((x, lowres_cond_img), dim = 1)
 
         return self.final_conv(x)
+
+# null unet
+
+class NullUnet(nn.Module):
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.lowres_cond = False
+        self.dummy_parameter = nn.Parameter(torch.tensor([0.]))
+
+    def cast_model_parameters(self, *args, **kwargs):
+        return self
+
+    def forward(self, x, *args, **kwargs):
+        return x
 
 # predefined unets, with configs lining up with hyperparameters in appendix of paper
 
@@ -1791,7 +1839,7 @@ class Imagen(nn.Module):
         self.only_train_unet_number = only_train_unet_number
 
         for ind, one_unet in enumerate(unets):
-            assert isinstance(one_unet, (Unet, Unet3D))
+            assert isinstance(one_unet, (Unet, Unet3D, NullUnet))
             is_first = ind == 0
 
             one_unet = one_unet.cast_model_parameters(
@@ -1926,6 +1974,7 @@ class Imagen(nn.Module):
         text_mask = None,
         cond_images = None,
         lowres_cond_img = None,
+        self_cond = None,
         lowres_noise_times = None,
         cond_scale = 1.,
         model_output = None,
@@ -1935,7 +1984,7 @@ class Imagen(nn.Module):
     ):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
-        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)))
+        pred = default(model_output, lambda: unet.forward_with_cond_scale(x, noise_scheduler.get_condition(t), text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, self_cond = self_cond, lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)))
 
         if pred_objective == 'noise':
             x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
@@ -1959,7 +2008,8 @@ class Imagen(nn.Module):
         else:
             x_start.clamp_(-1., 1.)
 
-        return noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
+        mean_and_variance = noise_scheduler.q_posterior(x_start = x_start, x_t = x, t = t, t_next = t_next)
+        return mean_and_variance, x_start
 
     @torch.no_grad()
     def p_sample(
@@ -1974,18 +2024,20 @@ class Imagen(nn.Module):
         text_mask = None,
         cond_images = None,
         cond_scale = 1.,
+        self_cond = None,
         lowres_cond_img = None,
         lowres_noise_times = None,
         pred_objective = 'noise',
         dynamic_threshold = True
     ):
         b, *_, device = *x.shape, x.device
-        model_mean, _, model_log_variance = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
+        (model_mean, _, model_log_variance), x_start = self.p_mean_variance(unet, x = x, t = t, t_next = t_next, noise_scheduler = noise_scheduler, text_embeds = text_embeds, text_mask = text_mask, cond_images = cond_images, cond_scale = cond_scale, lowres_cond_img = lowres_cond_img, self_cond = self_cond, lowres_noise_times = lowres_noise_times, pred_objective = pred_objective, dynamic_threshold = dynamic_threshold)
         noise = torch.randn_like(x)
         # no noise when t == 0
         is_last_sampling_timestep = (t_next == 0) if isinstance(noise_scheduler, GaussianDiffusionContinuousTimes) else (t == 0)
         nonzero_mask = (1 - is_last_sampling_timestep.float()).reshape(b, *((1,) * (len(x.shape) - 1)))
-        return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+        pred = model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
+        return pred, x_start
 
     @torch.no_grad()
     def p_sample_loop(
@@ -2019,6 +2071,10 @@ class Imagen(nn.Module):
         if exists(init_images):
             img += init_images
 
+        # keep track of x0, for self conditioning
+
+        x_start = None
+
         # prepare inpainting
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
@@ -2048,7 +2104,9 @@ class Imagen(nn.Module):
                     noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
                     img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
 
-                img = self.p_sample(
+                self_cond = x_start if unet.self_cond else None
+
+                img, x_start = self.p_sample(
                     unet,
                     img,
                     times,
@@ -2057,6 +2115,7 @@ class Imagen(nn.Module):
                     text_mask = text_mask,
                     cond_images = cond_images,
                     cond_scale = cond_scale,
+                    self_cond = self_cond,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
                     noise_scheduler = noise_scheduler,
@@ -2100,6 +2159,8 @@ class Imagen(nn.Module):
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
+        start_at_unet_number = 1,
+        start_image_or_video = None,
         stop_at_unet_number = None,
         return_all_unet_outputs = False,
         return_pil_images = False,
@@ -2155,9 +2216,24 @@ class Imagen(nn.Module):
 
         skip_steps = cast_tuple(skip_steps, num_unets)
 
+        # handle starting at a unet greater than 1, for training only-upscaler training
+
+        if start_at_unet_number > 1:
+            assert start_at_unet_number <= num_unets, 'must start a unet that is less than the total number of unets'
+            assert not exists(stop_at_unet_number) or start_at_unet_number <= stop_at_unet_number
+            assert exists(start_image_or_video), 'starting image or video must be supplied if only doing upscaling'
+
+            prev_image_size = self.image_sizes[start_at_unet_number - 2]
+            img = self.resize_to(start_image_or_video, prev_image_size)
+
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
+
+            if unet_number < start_at_unet_number:
+                continue
+
+            assert not isinstance(unet, NullUnet), 'one cannot sample from null / placeholder unets'
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -2219,7 +2295,7 @@ class Imagen(nn.Module):
 
     def p_losses(
         self,
-        unet,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
         x_start,
         times,
         *,
@@ -2275,17 +2351,46 @@ class Imagen(nn.Module):
             lowres_aug_times = default(lowres_aug_times, times)
             lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
-        # get prediction
+        # time condition
 
-        pred = unet.forward(
-            x_noisy,
-            noise_scheduler.get_condition(times),
+        noise_cond = noise_scheduler.get_condition(times)
+
+        # unet kwargs
+
+        unet_kwargs = dict(
             text_embeds = text_embeds,
             text_mask = text_mask,
             cond_images = cond_images,
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+        )
+
+        # self condition if needed
+
+        # Because 'unet' can be an instance of DistributedDataParallel coming from the
+        # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
+        # access the member 'module' of the wrapped unet instance.
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+
+        if self_cond and random() < 0.5:
+            with torch.no_grad():
+                pred = unet.forward(
+                    x_noisy,
+                    noise_cond,
+                    **unet_kwargs
+                ).detach()
+
+                x_start = noise_scheduler.predict_start_from_noise(x_noisy, t = times, noise = pred) if pred_objective == 'noise' else pred
+
+                unet_kwargs = {**unet_kwargs, 'self_cond': x_start}
+
+        # get prediction
+
+        pred = unet.forward(
+            x_noisy,
+            noise_cond,
+            **unet_kwargs
         )
 
         # prediction objective
@@ -2313,7 +2418,7 @@ class Imagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Unet = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -2328,9 +2433,13 @@ class Imagen(nn.Module):
         images = cast_uint8_images_to_float(images)
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
+        assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
+
         unet_index = unet_number - 1
-        
+
         unet = default(unet, lambda: self.get_unet(unet_number))
+
+        assert not isinstance(unet, NullUnet), 'null unet cannot and should not be trained'
 
         noise_scheduler      = self.noise_schedulers[unet_index]
         p2_loss_weight_gamma = self.p2_loss_weight_gamma[unet_index]

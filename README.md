@@ -20,6 +20,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/sgugger">Sylvain</a> and <a href="https://github.com/muellerzr">Zachary</a> for the <a href="https://github.com/huggingface/accelerate">Accelerate</a> library, which this repository uses for distributed training
 
+- <a href="https://github.com/arogozhnikov">Alex</a> for <a href="https://github.com/arogozhnikov/einops">einops</a>, indispensable tool for tensor manipulation
+
 - <a href="https://github.com/jorgemcgomes">Jorge Gomes</a> for helping out with the T5 loading code and advice on the correct T5 version
 
 - <a href="https://github.com/crowsonkb">Katherine Crowson</a>, for her <a href="https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/utils.py">beautiful code</a>, which helped me understand the continuous time version of gaussian diffusion
@@ -241,6 +243,62 @@ trainer.update(unet_number = 1)
 # now you can sample images unconditionally from the cascading unet(s)
 
 images = trainer.sample(batch_size = 16) # (16, 3, 128, 128)
+```
+
+Or train only super-resoluting unets
+
+```python
+import torch
+from imagen_pytorch import Unet, NullUnet, Imagen
+
+# unet for imagen
+
+unet1 = NullUnet()  # add a placeholder "null" unet for the base unet
+
+unet2 = Unet(
+    dim = 32,
+    cond_dim = 512,
+    dim_mults = (1, 2, 4, 8),
+    num_resnet_blocks = (2, 4, 8, 8),
+    layer_attns = (False, False, False, True),
+    layer_cross_attns = (False, False, False, True)
+)
+
+# imagen, which contains the unets above (base unet and super resoluting ones)
+
+imagen = Imagen(
+    unets = (unet1, unet2),
+    image_sizes = (64, 256),
+    timesteps = 250,
+    cond_drop_prob = 0.1
+).cuda()
+
+# mock images (get a lot of this) and text encodings from large T5
+
+text_embeds = torch.randn(4, 256, 768).cuda()
+images = torch.randn(4, 3, 256, 256).cuda()
+
+# feed images into imagen, training each unet in the cascade
+
+loss = imagen(images, text_embeds = text_embeds, unet_number = 2)
+loss.backward()
+
+# do the above for many many many many steps
+# now you can sample an image based on the text embeddings as well as low resolution images
+
+lowres_images = torch.randn(3, 3, 64, 64).cuda()  # starting un-resoluted images
+
+images = imagen.sample(
+    texts = [
+        'a whale breaching from afar',
+        'young girl blowing out candles on her birthday cake',
+        'fireworks with blue and green sparkles'
+    ],
+    start_at_unet_number = 2,              # start at unet number 2
+    start_image_or_video = lowres_images,  # pass in low resolution images to be resoluted
+    cond_scale = 3.)
+
+images.shape # (3, 3, 256, 256)
 ```
 
 At any time you can save and load the trainer and all associated states with the `save` and `load` methods. It is recommended you use these methods instead of manually saving with a `state_dict` call, as there are some device memory management being done underneath the hood within the trainer.
@@ -528,6 +586,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 
 - <a href="https://github.com/archinetai/audio-diffusion-pytorch">Audio diffusion</a> from <a href="https://github.com/flavioschneider">Flavio Schneider</a>
 
+- <a href="https://github.com/AssemblyAI-Examples/MinImagen">Mini Imagen</a> from <a href="https://github.com/oconnoob">Ryan O.</a> | <a href="https://www.assemblyai.com/blog/build-your-own-imagen-text-to-image-model/">AssemblyAI writeup</a>
+
 ## Todo
 
 - [x] use huggingface transformers for T5-small text embeddings
@@ -566,11 +626,13 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] allow for imagen to generalize to any shape
 - [x] add <a href="https://github.com/lucidrains/x-transformers#dynamic-positional-bias">dynamic positional bias</a> for the best type of length extrapolation across video time
 - [x] move video frames to sample function, as we will be attempting time extrapolation
+- [x] attention bias to null key / values should be a learned scalar of head dimension
+- [x] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
-- [ ] attention bias to null key / values should be a learned scalar of head dimension
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
 - [ ] consider transformer-xl memories in the temporal attention blocks
+- [ ] consider <a href="github.com/lucidrains/perceiver-ar-pytorch">perceiver-ar approach</a> to attending to past time
 - [ ] frame dropouts during attention for achieving both regularizing effect as well as shortened training time
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
 - [ ] make sure inpainting works with video
@@ -583,7 +645,9 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add ability to only train super-resolution network
 - [ ] read <a href="https://arxiv.org/abs/2206.00927v1">dpm-solver</a> see if it is applicable to continuous time gaussian diffusion
 - [ ] allow for conditioning video frames with arbitrary absolute times (calculate RPE during temporal attention)
-- [ ] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
+- [ ] accommodate <a href="https://dreambooth.github.io/">dream booth</a> fine tuning
+- [ ] add textual inversion
+- [ ] cleanup self conditioning to be extracted at imagen instantiation
 
 ## Citations
 
@@ -684,5 +748,36 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     eprint  = {2204.03458},
     archivePrefix = {arXiv},
     primaryClass = {cs.CV}
+}
+```
+
+```bibtex
+@inproceedings{rogozhnikov2022einops,
+    title   = {Einops: Clear and Reliable Tensor Manipulations with Einstein-like Notation},
+    author  = {Alex Rogozhnikov},
+    booktitle = {International Conference on Learning Representations},
+    year    = {2022},
+    url     = {https://openreview.net/forum?id=oapKSVM2bcj}
+}
+```
+
+```bibtex
+@misc{chen2022analog,
+    title   = {Analog Bits: Generating Discrete Data using Diffusion Models with Self-Conditioning},
+    author  = {Ting Chen and Ruixiang Zhang and Geoffrey Hinton},
+    year    = {2022},
+    eprint  = {2208.04202},
+    archivePrefix = {arXiv},
+    primaryClass = {cs.CV}
+}
+```
+
+```bibtex
+@article{Sunkara2022NoMS,
+    title   = {No More Strided Convolutions or Pooling: A New CNN Building Block for Low-Resolution Images and Small Objects},
+    author  = {Raja Sunkara and Tie Luo},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2208.03641}
 }
 ```
