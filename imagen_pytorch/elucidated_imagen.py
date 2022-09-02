@@ -1,4 +1,5 @@
 from math import sqrt
+from random import random
 from functools import partial
 from contextlib import contextmanager, nullcontext
 from typing import List, Union
@@ -9,6 +10,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from torch.cuda.amp import autocast
+from torch.nn.parallel import DistributedDataParallel
 import torchvision.transforms as T
 
 import kornia.augmentation as K
@@ -19,6 +21,7 @@ from einops_exts import rearrange_many
 from imagen_pytorch.imagen_pytorch import (
     GaussianDiffusionContinuousTimes,
     Unet,
+    NullUnet,
     first,
     exists,
     identity,
@@ -26,6 +29,7 @@ from imagen_pytorch.imagen_pytorch import (
     default,
     cast_tuple,
     cast_uint8_images_to_float,
+    is_float_dtype,
     eval_decorator,
     check_shape,
     pad_tuple_to_length,
@@ -101,6 +105,8 @@ class ElucidatedImagen(nn.Module):
     ):
         super().__init__()
 
+        self.only_train_unet_number = only_train_unet_number
+
         # conditioning hparams
 
         self.condition_on_text = condition_on_text
@@ -138,7 +144,7 @@ class ElucidatedImagen(nn.Module):
         self.unet_being_trained_index = -1 # keeps track of which unet is being trained at the moment
 
         for ind, one_unet in enumerate(unets):
-            assert isinstance(one_unet, (Unet, Unet3D))
+            assert isinstance(one_unet, (Unet, Unet3D, NullUnet))
             is_first = ind == 0
 
             one_unet = one_unet.cast_model_parameters(
@@ -405,6 +411,10 @@ class ElucidatedImagen(nn.Module):
         if exists(init_images):
             images += init_images
 
+        # keeping track of x0, for self conditioning if needed
+
+        x_start = None
+
         # prepare inpainting images and mask
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
@@ -447,6 +457,8 @@ class ElucidatedImagen(nn.Module):
 
                 images_hat = images + added_noise
 
+                self_cond = x_start if unet.self_cond else None
+
                 if has_inpainting:
                     images_hat = images_hat * ~inpaint_masks + (inpaint_images + added_noise) * inpaint_masks
 
@@ -454,6 +466,7 @@ class ElucidatedImagen(nn.Module):
                     unet.forward_with_cond_scale,
                     images_hat,
                     sigma_hat,
+                    self_cond = self_cond,
                     **unet_kwargs
                 )
 
@@ -464,10 +477,13 @@ class ElucidatedImagen(nn.Module):
                 # second order correction, if not the last timestep
 
                 if sigma_next != 0:
+                    self_cond = model_output if unet.self_cond else None
+
                     model_output_next = self.preconditioned_network_forward(
                         unet.forward_with_cond_scale,
                         images_next,
                         sigma_next,
+                        self_cond = self_cond,
                         **unet_kwargs
                     )
 
@@ -480,6 +496,8 @@ class ElucidatedImagen(nn.Module):
                     # renoise in repaint and then resample
                     repaint_noise = torch.randn(shape, device = self.device)
                     images = images + (sigma - sigma_next) * repaint_noise
+
+                x_start = model_output  # save model output for self conditioning
 
         images = images.clamp(-1., 1.)
 
@@ -507,6 +525,8 @@ class ElucidatedImagen(nn.Module):
         batch_size = 1,
         cond_scale = 1.,
         lowres_sample_noise_level = None,
+        start_at_unet_number = 1,
+        start_image_or_video = None,
         stop_at_unet_number = None,
         return_all_unet_outputs = False,
         return_pil_images = False,
@@ -562,9 +582,23 @@ class ElucidatedImagen(nn.Module):
         sigma_min = cast_tuple(sigma_min, num_unets)
         sigma_max = cast_tuple(sigma_max, num_unets)
 
+        # handle starting at a unet greater than 1, for training only-upscaler training
+
+        if start_at_unet_number > 1:
+            assert start_at_unet_number <= num_unets, 'must start a unet that is less than the total number of unets'
+            assert not exists(stop_at_unet_number) or start_at_unet_number <= stop_at_unet_number
+            assert exists(start_image_or_video), 'starting image or video must be supplied if only doing upscaling'
+
+            prev_image_size = self.image_sizes[start_at_unet_number - 2]
+            img = self.resize_to(start_image_or_video, prev_image_size)
+
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
+            if unet_number < start_at_unet_number:
+                continue
+
+            assert not isinstance(unet, NullUnet), 'cannot sample from null unet'
 
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
@@ -637,7 +671,7 @@ class ElucidatedImagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Union[Unet, Unet3D] = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -652,9 +686,13 @@ class ElucidatedImagen(nn.Module):
         images = cast_uint8_images_to_float(images)
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
+        assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
+
         unet_index = unet_number - 1
         
         unet = default(unet, lambda: self.get_unet(unet_number))
+
+        assert not isinstance(unet, NullUnet), 'null unet cannot and should not be trained'
 
         target_image_size    = self.image_sizes[unet_index]
         random_crop_size     = self.random_crop_sizes[unet_index]
@@ -737,12 +775,9 @@ class ElucidatedImagen(nn.Module):
         noise = torch.randn_like(images)
         noised_images = images + padded_sigmas * noise  # alphas are 1. in the paper
 
-        # get prediction
+        # unet kwargs
 
-        denoised_images = self.preconditioned_network_forward(
-            unet.forward,
-            noised_images,
-            sigmas,
+        unet_kwargs = dict(
             sigma_data = hp.sigma_data,
             text_embeds = text_embeds,
             text_mask = text_masks,
@@ -750,6 +785,33 @@ class ElucidatedImagen(nn.Module):
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+        )
+
+        # self conditioning - https://arxiv.org/abs/2208.04202 - training will be 25% slower
+
+        # Because 'unet' can be an instance of DistributedDataParallel coming from the
+        # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
+        # access the member 'module' of the wrapped unet instance.
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+
+        if unet.self_cond and random() < 0.5:
+            with torch.no_grad():
+                pred_x0 = self.preconditioned_network_forward(
+                    unet.forward,
+                    noised_images,
+                    sigmas,
+                    **unet_kwargs
+                ).detach()
+
+            unet_kwargs = {**unet_kwargs, 'self_cond': pred_x0}
+
+        # get prediction
+
+        denoised_images = self.preconditioned_network_forward(
+            unet.forward,
+            noised_images,
+            sigmas,
+            **unet_kwargs
         )
 
         # losses

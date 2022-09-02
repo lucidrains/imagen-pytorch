@@ -17,7 +17,7 @@ from torch.cuda.amp import autocast, GradScaler
 
 import pytorch_warmup as warmup
 
-from imagen_pytorch.imagen_pytorch import Imagen
+from imagen_pytorch.imagen_pytorch import Imagen, NullUnet
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 from imagen_pytorch.data import cycle
 
@@ -110,11 +110,13 @@ def eval_decorator(fn):
         return out
     return inner
 
-def cast_torch_tensor(fn):
+def cast_torch_tensor(fn, cast_fp16 = False):
     @wraps(fn)
     def inner(model, *args, **kwargs):
         device = kwargs.pop('_device', model.device)
         cast_device = kwargs.pop('_cast_device', True)
+
+        should_cast_fp16 = cast_fp16 and model.cast_half_at_training
 
         kwargs_keys = kwargs.keys()
         all_args = (*args, *kwargs.values())
@@ -123,6 +125,9 @@ def cast_torch_tensor(fn):
 
         if cast_device:
             all_args = tuple(map(lambda t: t.to(device) if exists(t) and isinstance(t, torch.Tensor) else t, all_args))
+
+        if should_cast_fp16:
+            all_args = tuple(map(lambda t: t.half() if exists(t) and isinstance(t, torch.Tensor) and t.dtype != torch.bool else t, all_args))
 
         args, kwargs_values = all_args[:split_kwargs_index], all_args[split_kwargs_index:]
         kwargs = dict(tuple(zip(kwargs_keys, kwargs_values)))
@@ -203,6 +208,21 @@ def imagen_sample_in_chunks(fn):
 
     return inner
 
+
+def restore_parts(state_dict_target, state_dict_from):
+    for name, param in state_dict_from.items():
+
+        if name not in state_dict_target:
+            continue
+
+        if param.size() == state_dict_target[name].size():
+            state_dict_target[name].copy_(param)
+        else:
+            print(f"layer {name}({param.size()} different than target: {state_dict_target[name].size()}")
+
+    return state_dict_target
+
+
 class ImagenTrainer(nn.Module):
     locked = False
 
@@ -268,6 +288,10 @@ class ImagenTrainer(nn.Module):
         , **accelerate_kwargs})
 
         ImagenTrainer.locked = self.is_distributed
+
+        # cast data to fp16 at training time if needed
+
+        self.cast_half_at_training = accelerator_mixed_precision == 'fp16'
 
         # grad scaler must be managed outside of accelerator
 
@@ -486,12 +510,16 @@ class ImagenTrainer(nn.Module):
         return self.steps[unet_number - 1].item()
 
     def print_untrained_unets(self):
-        for ind, steps in enumerate(self.steps.tolist()):
-            if steps > 0:
-                continue
-            self.print(f'unet {ind + 1} has not been trained')
+        print_final_error = False
 
-        if torch.any(self.steps == 0):
+        for ind, (steps, unet) in enumerate(zip(self.steps.tolist(), self.imagen.unets)):
+            if steps > 0 or isinstance(unet, NullUnet):
+                continue
+
+            self.print(f'unet {ind + 1} has not been trained')
+            print_final_error = True
+
+        if print_final_error:
             self.print('when sampling, you can pass stop_at_unet_number to stop early in the cascade, so it does not try to generate with untrained unets')
 
     # data related functions
@@ -712,11 +740,17 @@ class ImagenTrainer(nn.Module):
         if version.parse(__version__) != version.parse(loaded_obj['version']):
             self.print(f'loading saved imagen at version {loaded_obj["version"]}, but current package version is {__version__}')
 
-        self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
-        self.steps.copy_(loaded_obj['steps'])
+        try:
+            self.imagen.load_state_dict(loaded_obj['model'], strict = strict)
+        except RuntimeError:
+            print("Failed loading state dict. Trying partial load")
+            self.imagen.load_state_dict(restore_parts(self.imagen.state_dict(),
+                                                      loaded_obj['model']))
 
         if only_model:
             return loaded_obj
+
+        self.steps.copy_(loaded_obj['steps'])
 
         for ind in range(0, self.num_unets):
             scaler_key = f'scaler{ind}'
@@ -744,7 +778,12 @@ class ImagenTrainer(nn.Module):
 
         if self.use_ema:
             assert 'ema' in loaded_obj
-            self.ema_unets.load_state_dict(loaded_obj['ema'], strict = strict)
+            try:
+                self.ema_unets.load_state_dict(loaded_obj['ema'], strict = strict)
+            except RuntimeError:
+                print("Failed loading state dict. Trying partial load")
+                self.ema_unets.load_state_dict(restore_parts(self.ema_unets.state_dict(),
+                                                             loaded_obj['ema']))
 
         self.print(f'checkpoint loaded from {path}')
         return loaded_obj
@@ -898,7 +937,7 @@ class ImagenTrainer(nn.Module):
 
         return output
 
-    @cast_torch_tensor
+    @partial(cast_torch_tensor, cast_fp16 = True)
     def forward(
         self,
         *args,

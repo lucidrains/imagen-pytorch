@@ -366,6 +366,8 @@ class Attention(nn.Module):
 
         self.norm = LayerNorm(dim)
 
+        self.null_attn_bias = nn.Parameter(torch.randn(heads))
+
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
@@ -412,7 +414,8 @@ class Attention(nn.Module):
         # relative positional encoding (T5 style)
 
         if exists(attn_bias):
-            attn_bias = F.pad(attn_bias, (1, 0), value = 0.)
+            null_attn_bias = repeat(self.null_attn_bias, 'h -> h n 1', n = n)
+            attn_bias = torch.cat((null_attn_bias, attn_bias), dim = -1)
             sim = sim + attn_bias
 
         # masking
@@ -457,6 +460,15 @@ def Conv2d(dim_in, dim_out, kernel, stride = 1, padding = 0, **kwargs):
         padding = (0, *padding)
 
     return nn.Conv3d(dim_in, dim_out, kernel, stride = stride, padding = padding, **kwargs)
+
+class Pad(nn.Module):
+    def __init__(self, padding, value = 0.):
+        super().__init__()
+        self.padding = padding
+        self.value = value
+
+    def forward(self, x):
+        return F.pad(x, self.padding, value = self.value)
 
 # decoder
 
@@ -1058,6 +1070,7 @@ class Unet3D(nn.Module):
         final_resnet_block = True,
         final_conv_kernel_size = 3,
         cosine_sim_attn = False,
+        self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True        # may address checkboard artifacts
     ):
@@ -1076,12 +1089,16 @@ class Unet3D(nn.Module):
         self._locals.pop('self', None)
         self._locals.pop('__class__', None)
 
+        self.self_cond = self_cond
+
         # determine dimensions
 
         self.channels = channels
         self.channels_out = default(channels_out, channels)
 
-        init_channels = channels if not lowres_cond else channels * 2 # in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (1) in cascading diffusion, one concats the low resolution image, blurred, for conditioning the higher resolution synthesis
+        # (2) in self conditioning, one appends the predict x0 (x_start)
+        init_channels = channels * (1 + int(lowres_cond) + int(self_cond))
         init_dim = default(init_dim, dim)
 
         # optional image conditioning
@@ -1192,7 +1209,10 @@ class Unet3D(nn.Module):
 
         # temporal attention - attention across video frames
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn}))
+        temporal_peg_padding = (0, 0, 0, 0, 2, 0) if time_causal_attn else (0, 0, 0, 0, 1, 1)
+        temporal_peg = lambda dim: Residual(nn.Sequential(Pad(temporal_peg_padding), nn.Conv3d(dim, dim, (3, 1, 1), groups = dim)))
+
+        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn})))
 
         # temporal attention relative positional encoding
 
@@ -1222,6 +1242,7 @@ class Unet3D(nn.Module):
 
         self.init_resnet_block = resnet_klass(init_dim, init_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[0], use_gca = use_global_context_attn) if memory_efficient else None
 
+        self.init_temporal_peg = temporal_peg(init_dim)
         self.init_temporal_attn = temporal_attn(init_dim)
 
         # scale for resnet skip connections
@@ -1272,6 +1293,7 @@ class Unet3D(nn.Module):
                 resnet_klass(current_dim, current_dim, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(current_dim, current_dim, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = current_dim, depth = layer_attn_depth, ff_mult = ff_mult, context_dim = cond_dim, **attn_kwargs),
+                temporal_peg(current_dim),
                 temporal_attn(current_dim),
                 post_downsample
             ]))
@@ -1282,6 +1304,7 @@ class Unet3D(nn.Module):
 
         self.mid_block1 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
         self.mid_attn = EinopsToAndFrom('b c f h w', 'b (f h w) c', Residual(Attention(mid_dim, **attn_kwargs))) if attend_at_middle else None
+        self.mid_temporal_peg = temporal_peg(mid_dim)
         self.mid_temporal_attn = temporal_attn(mid_dim)
         self.mid_block2 = ResnetBlock(mid_dim, mid_dim, cond_dim = cond_dim, time_cond_dim = time_cond_dim, groups = resnet_groups[-1])
 
@@ -1307,6 +1330,7 @@ class Unet3D(nn.Module):
                 resnet_klass(dim_out + skip_connect_dim, dim_out, cond_dim = layer_cond_dim, linear_attn = layer_use_linear_cross_attn, time_cond_dim = time_cond_dim, groups = groups),
                 nn.ModuleList([ResnetBlock(dim_out + skip_connect_dim, dim_out, time_cond_dim = time_cond_dim, groups = groups, use_gca = use_global_context_attn) for _ in range(layer_num_resnet_blocks)]),
                 transformer_block_klass(dim = dim_out, depth = layer_attn_depth, ff_mult = ff_mult, context_dim = cond_dim, **attn_kwargs),
+                temporal_peg(dim_out),
                 temporal_attn(dim_out),
                 upsample_klass(dim_out, dim_in) if not is_last or memory_efficient else Identity()
             ]))
@@ -1426,11 +1450,18 @@ class Unet3D(nn.Module):
         text_embeds = None,
         text_mask = None,
         cond_images = None,
+        self_cond = None,
         cond_drop_prob = 0.
     ):
         assert x.ndim == 5, 'input to 3d unet must have 5 dimensions (batch, channels, time, height, width)'
 
         batch_size, frames, device, dtype = x.shape[0], x.shape[2], x.device, x.dtype
+
+        # add self conditioning if needed
+
+        if self.self_cond:
+            self_cond = default(self_cond, lambda: torch.zeros_like(x))
+            x = torch.cat((x, self_cond), dim = 1)
 
         # add low resolution conditioning, if present
 
@@ -1457,6 +1488,7 @@ class Unet3D(nn.Module):
 
         x = self.init_conv(x)
 
+        x = self.init_temporal_peg(x)
         x = self.init_temporal_attn(x, attn_bias = time_attn_bias)
 
         # init conv residual
@@ -1564,7 +1596,7 @@ class Unet3D(nn.Module):
 
         hiddens = []
 
-        for pre_downsample, init_block, resnet_blocks, attn_block, temporal_attn, post_downsample in self.downs:
+        for pre_downsample, init_block, resnet_blocks, attn_block, temporal_peg, temporal_attn, post_downsample in self.downs:
             if exists(pre_downsample):
                 x = pre_downsample(x)
 
@@ -1575,6 +1607,7 @@ class Unet3D(nn.Module):
                 hiddens.append(x)
 
             x = attn_block(x, c)
+            x = temporal_peg(x)
             x = temporal_attn(x, attn_bias = time_attn_bias)
 
             hiddens.append(x)
@@ -1587,6 +1620,7 @@ class Unet3D(nn.Module):
         if exists(self.mid_attn):
             x = self.mid_attn(x)
 
+        x = self.mid_temporal_peg(x)
         x = self.mid_temporal_attn(x, attn_bias = time_attn_bias)
 
         x = self.mid_block2(x, t, c)
@@ -1595,7 +1629,7 @@ class Unet3D(nn.Module):
 
         up_hiddens = []
 
-        for init_block, resnet_blocks, attn_block, temporal_attn, upsample in self.ups:
+        for init_block, resnet_blocks, attn_block, temporal_peg, temporal_attn, upsample in self.ups:
             x = add_skip_connection(x)
             x = init_block(x, t, c)
 
@@ -1604,6 +1638,7 @@ class Unet3D(nn.Module):
                 x = resnet_block(x, t)
 
             x = attn_block(x, c)
+            x = temporal_peg(x)
             x = temporal_attn(x, attn_bias = time_attn_bias)
 
             up_hiddens.append(x.contiguous())

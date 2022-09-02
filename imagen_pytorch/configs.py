@@ -3,7 +3,7 @@ from pydantic import BaseModel, validator, root_validator
 from typing import List, Iterable, Optional, Union, Tuple, Dict, Any
 from enum import Enum
 
-from imagen_pytorch.imagen_pytorch import Imagen, Unet, Unet3D
+from imagen_pytorch.imagen_pytorch import Imagen, Unet, Unet3D, NullUnet
 from imagen_pytorch.trainer import ImagenTrainer
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 from imagen_pytorch.t5 import DEFAULT_T5_NAME, get_encoded_dim
@@ -35,6 +35,12 @@ class AllowExtraBaseModel(BaseModel):
 
 # imagen pydantic classes
 
+class NullUnetConfig(BaseModel):
+    is_null:            bool
+
+    def create(self):
+        return NullUnet()
+
 class UnetConfig(AllowExtraBaseModel):
     dim:                int
     dim_mults:          ListOrTuple(int)
@@ -60,7 +66,7 @@ class Unet3DConfig(AllowExtraBaseModel):
         return Unet3D(**self.dict())
 
 class ImagenConfig(AllowExtraBaseModel):
-    unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig])
+    unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig, NullUnetConfig])
     image_sizes:            ListOrTuple(int)
     video:                  bool = False
     timesteps:              SingleOrList(int) = 1000
@@ -82,16 +88,25 @@ class ImagenConfig(AllowExtraBaseModel):
         unets_kwargs = decoder_kwargs.pop('unets')
         is_video = decoder_kwargs.pop('video', False)
 
-        unet_klass = Unet3D if is_video else Unet
+        unets = []
 
-        unets = [unet_klass(**unet_kwargs) for unet_kwargs in unets_kwargs]
+        for unet, unet_kwargs in zip(self.unets, unets_kwargs):
+            if isinstance(unet, NullUnetConfig):
+                unet_klass = NullUnet
+            elif is_video:
+                unet_klass = Unet3D
+            else:
+                unet_klass = Unet
+
+            unets.append(unet_klass(**unet_kwargs))
+
         imagen = Imagen(unets, **decoder_kwargs)
 
         imagen._config = self.dict().copy()
         return imagen
 
 class ElucidatedImagenConfig(AllowExtraBaseModel):
-    unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig])
+    unets:                  ListOrTuple(Union[UnetConfig, Unet3DConfig, NullUnetConfig])
     image_sizes:            ListOrTuple(int)
     video:                  bool = False
     text_encoder_name:      str = DEFAULT_T5_NAME
@@ -123,7 +138,18 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
 
         unet_klass = Unet3D if is_video else Unet
 
-        unets = [unet_klass(**unet_kwargs) for unet_kwargs in unets_kwargs]
+        unets = []
+
+        for unet, unet_kwargs in zip(self.unets, unets_kwargs):
+            if isinstance(unet, NullUnetConfig):
+                unet_klass = NullUnet
+            elif is_video:
+                unet_klass = Unet3D
+            else:
+                unet_klass = Unet
+
+            unets.append(unet_klass(**unet_kwargs))
+
         imagen = ElucidatedImagen(unets, **decoder_kwargs)
 
         imagen._config = self.dict().copy()
