@@ -794,7 +794,7 @@ class ElucidatedImagen(nn.Module):
         # access the member 'module' of the wrapped unet instance.
         self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
 
-        if unet.self_cond and random() < 0.5:
+        if self_cond and random() < 0.5:
             with torch.no_grad():
                 pred_x0 = self.preconditioned_network_forward(
                     unet.forward,
