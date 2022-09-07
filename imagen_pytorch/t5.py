@@ -25,7 +25,7 @@ T5_CONFIGS = {}
 # singleton globals
 
 def get_tokenizer(name):
-    tokenizer = T5Tokenizer.from_pretrained(name)
+    tokenizer = T5Tokenizer.from_pretrained(name, model_max_length=MAX_LENGTH)
     return tokenizer
 
 def get_model(name):
