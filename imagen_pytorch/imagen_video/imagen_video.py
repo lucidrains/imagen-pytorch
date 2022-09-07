@@ -1,7 +1,7 @@
 import math
 import copy
 from typing import List
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
 from collections import namedtuple
