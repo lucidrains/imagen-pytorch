@@ -1908,6 +1908,13 @@ class Imagen(nn.Module):
 
         self.to(next(self.unets.parameters()).device)
 
+    def force_unconditional_(self):
+        self.condition_on_text = False
+        self.unconditional = True
+
+        for unet in self.unets:
+            unet.cond_on_text = False
+
     @property
     def device(self):
         return self._temp.device
@@ -2183,6 +2190,14 @@ class Imagen(nn.Module):
 
             text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        if exists(inpaint_images):
+            if self.unconditional:
+                if batch_size == 1: # assume researcher wants to broadcast along inpainted images
+                    batch_size = inpaint_images.shape[0]
+
+            assert inpaint_images.shape[0] == batch_size, 'number of inpainting images must be equal to the specified batch size on sample `sample(batch_size=<int>)``'
+            assert not (self.condition_on_text and inpaint_images.shape[0] != text_embeds.shape[0]), 'number of inpainting images must be equal to the number of text to be conditioned on'
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
