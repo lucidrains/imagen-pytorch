@@ -934,6 +934,7 @@ class ImagenTrainer(nn.Module):
         
         if not self.is_main:
             kwargs['use_tqdm'] = False
+
         with context():
             output = self.imagen.sample(*args, device = self.device, **kwargs)
 
