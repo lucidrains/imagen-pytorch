@@ -2,7 +2,7 @@ import math
 import copy
 from random import random
 from typing import List, Union
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
 from collections import namedtuple
@@ -10,6 +10,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel
 from torch import nn, einsum
 from torch.cuda.amp import autocast
 from torch.special import expm1
@@ -269,7 +270,7 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         log_snr_padded_dim = right_pad_dims_to(x_from, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
 
-        log_snr_to = self.log_snr(from_t)
+        log_snr_to = self.log_snr(to_t)
         log_snr_padded_dim_to = right_pad_dims_to(x_from, log_snr_to)
         alpha_to, sigma_to =  log_snr_to_alpha_sigma(log_snr_padded_dim_to)
 
@@ -1256,6 +1257,9 @@ class Unet(nn.Module):
         layer_attns_depth = cast_tuple(layer_attns_depth, num_layers)
         layer_cross_attns = cast_tuple(layer_cross_attns, num_layers)
 
+        use_linear_attn = cast_tuple(use_linear_attn, num_layers)
+        use_linear_cross_attn = cast_tuple(use_linear_cross_attn, num_layers)
+
         assert all([layers == num_layers for layers in list(map(len, (resnet_groups, layer_attns, layer_cross_attns)))])
 
         # downsample klass
@@ -1279,20 +1283,24 @@ class Unet(nn.Module):
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
 
-        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_attns_depth, layer_cross_attns]
+        layer_params = [num_resnet_blocks, resnet_groups, layer_attns, layer_attns_depth, layer_cross_attns, use_linear_attn, use_linear_cross_attn]
         reversed_layer_params = list(map(reversed, layer_params))
 
         # downsampling layers
 
         skip_connect_dims = [] # keep track of skip connection dimensions
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(in_out, *layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn, layer_use_linear_attn, layer_use_linear_cross_attn) in enumerate(zip(in_out, *layer_params)):
             is_last = ind >= (num_resolutions - 1)
 
-            layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
 
-            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else Identity)
+            if layer_attn:
+                transformer_block_klass = TransformerBlock
+            elif layer_use_linear_attn:
+                transformer_block_klass = LinearAttentionTransformerBlock
+            else:
+                transformer_block_klass = Identity
 
             current_dim = dim_in
 
@@ -1336,11 +1344,17 @@ class Unet(nn.Module):
 
         upsample_fmap_dims = []
 
-        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
+        for ind, ((dim_in, dim_out), layer_num_resnet_blocks, groups, layer_attn, layer_attn_depth, layer_cross_attn, layer_use_linear_attn, layer_use_linear_cross_attn) in enumerate(zip(reversed(in_out), *reversed_layer_params)):
             is_last = ind == (len(in_out) - 1)
-            layer_use_linear_cross_attn = not layer_cross_attn and use_linear_cross_attn
+
             layer_cond_dim = cond_dim if layer_cross_attn or layer_use_linear_cross_attn else None
-            transformer_block_klass = TransformerBlock if layer_attn else (LinearAttentionTransformerBlock if use_linear_attn else Identity)
+
+            if layer_attn:
+                transformer_block_klass = TransformerBlock
+            elif layer_use_linear_attn:
+                transformer_block_klass = LinearAttentionTransformerBlock
+            else:
+                transformer_block_klass = Identity
 
             skip_connect_dim = skip_connect_dims.pop()
 
@@ -1543,7 +1557,7 @@ class Unet(nn.Module):
             text_tokens = self.text_to_cond(text_embeds)
 
             text_tokens = text_tokens[:, :self.max_text_len]
-            
+
             if exists(text_mask):
                 text_mask = text_mask[:, :self.max_text_len]
 
@@ -1894,6 +1908,13 @@ class Imagen(nn.Module):
 
         self.to(next(self.unets.parameters()).device)
 
+    def force_unconditional_(self):
+        self.condition_on_text = False
+        self.unconditional = True
+
+        for unet in self.unets:
+            unet.cond_on_text = False
+
     @property
     def device(self):
         return self._temp.device
@@ -2159,16 +2180,26 @@ class Imagen(nn.Module):
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert all([*map(len, texts)]), 'text cannot be empty'
+
             with autocast(enabled = False):
                 text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
 
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
         if not self.unconditional:
-            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
+            assert exists(text_embeds), 'text must be passed in if the network was not trained without text `condition_on_text` must be set to `False` when training'
 
-        if not self.unconditional:
+            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        if exists(inpaint_images):
+            if self.unconditional:
+                if batch_size == 1: # assume researcher wants to broadcast along inpainted images
+                    batch_size = inpaint_images.shape[0]
+
+            assert inpaint_images.shape[0] == batch_size, 'number of inpainting images must be equal to the specified batch size on sample `sample(batch_size=<int>)``'
+            assert not (self.condition_on_text and inpaint_images.shape[0] != text_embeds.shape[0]), 'number of inpainting images must be equal to the number of text to be conditioned on'
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
@@ -2281,7 +2312,7 @@ class Imagen(nn.Module):
 
     def p_losses(
         self,
-        unet,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
         x_start,
         times,
         *,
@@ -2354,7 +2385,12 @@ class Imagen(nn.Module):
 
         # self condition if needed
 
-        if unet.self_cond and random() < 0.5:
+        # Because 'unet' can be an instance of DistributedDataParallel coming from the
+        # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
+        # access the member 'module' of the wrapped unet instance.
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+
+        if self_cond and random() < 0.5:
             with torch.no_grad():
                 pred = unet.forward(
                     x_noisy,
@@ -2399,7 +2435,7 @@ class Imagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Union[Unet, Unet3D, NullUnet] = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -2417,7 +2453,7 @@ class Imagen(nn.Module):
         assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
 
         unet_index = unet_number - 1
-        
+
         unet = default(unet, lambda: self.get_unet(unet_number))
 
         assert not isinstance(unet, NullUnet), 'null unet cannot and should not be trained'
@@ -2439,6 +2475,7 @@ class Imagen(nn.Module):
         times = noise_scheduler.sample_random_times(b, device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert all([*map(len, texts)]), 'text cannot be empty'
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
             with autocast(enabled = False):

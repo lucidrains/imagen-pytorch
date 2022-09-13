@@ -4,12 +4,13 @@ from functools import partial
 from contextlib import contextmanager, nullcontext
 from typing import List, Union
 from collections import namedtuple
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from torch.cuda.amp import autocast
+from torch.nn.parallel import DistributedDataParallel
 import torchvision.transforms as T
 
 import kornia.augmentation as K
@@ -221,6 +222,13 @@ class ElucidatedImagen(nn.Module):
         # default to device of unets passed in
 
         self.to(next(self.unets.parameters()).device)
+
+    def force_unconditional_(self):
+        self.condition_on_text = False
+        self.unconditional = True
+
+        for unet in self.unets:
+            unet.cond_on_text = False
 
     @property
     def device(self):
@@ -538,16 +546,26 @@ class ElucidatedImagen(nn.Module):
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert all([*map(len, texts)]), 'text cannot be empty'
+
             with autocast(enabled = False):
                 text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
 
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
         if not self.unconditional:
-            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
+            assert exists(text_embeds), 'text must be passed in if the network was not trained without text `condition_on_text` must be set to `False` when training'
 
-        if not self.unconditional:
+            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        if exists(inpaint_images):
+            if self.unconditional:
+                if batch_size == 1: # assume researcher wants to broadcast along inpainted images
+                    batch_size = inpaint_images.shape[0]
+
+            assert inpaint_images.shape[0] == batch_size, 'number of inpainting images must be equal to the specified batch size on sample `sample(batch_size=<int>)``'
+            assert not (self.condition_on_text and inpaint_images.shape[0] != text_embeds.shape[0]), 'number of inpainting images must be equal to the number of text to be conditioned on'
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
@@ -670,7 +688,7 @@ class ElucidatedImagen(nn.Module):
     def forward(
         self,
         images,
-        unet: Union[Unet, Unet3D, NullUnet] = None,
+        unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
         texts: List[str] = None,
         text_embeds = None,
         text_masks = None,
@@ -707,6 +725,7 @@ class ElucidatedImagen(nn.Module):
         assert h >= target_image_size and w >= target_image_size
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert all([*map(len, texts)]), 'text cannot be empty'
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
             with autocast(enabled = False):
@@ -788,7 +807,12 @@ class ElucidatedImagen(nn.Module):
 
         # self conditioning - https://arxiv.org/abs/2208.04202 - training will be 25% slower
 
-        if unet.self_cond and random() < 0.5:
+        # Because 'unet' can be an instance of DistributedDataParallel coming from the
+        # ImagenTrainer.unet_being_trained when invoking ImagenTrainer.forward(), we need to
+        # access the member 'module' of the wrapped unet instance.
+        self_cond = unet.module.self_cond if isinstance(unet, DistributedDataParallel) else unet
+
+        if self_cond and random() < 0.5:
             with torch.no_grad():
                 pred_x0 = self.preconditioned_network_forward(
                     unet.forward,

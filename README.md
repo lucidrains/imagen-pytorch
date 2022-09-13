@@ -646,6 +646,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] read <a href="https://arxiv.org/abs/2206.00927v1">dpm-solver</a> see if it is applicable to continuous time gaussian diffusion
 - [ ] allow for conditioning video frames with arbitrary absolute times (calculate RPE during temporal attention)
 - [ ] accommodate <a href="https://dreambooth.github.io/">dream booth</a> fine tuning
+- [ ] add textual inversion
+- [ ] cleanup self conditioning to be extracted at imagen instantiation
 
 ## Citations
 
