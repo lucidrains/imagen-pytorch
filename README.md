@@ -648,6 +648,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] accommodate <a href="https://dreambooth.github.io/">dream booth</a> fine tuning
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
+- [ ] incorporate all learnings from make-a-video (https://makeavideo.studio/)
 
 ## Citations
 
