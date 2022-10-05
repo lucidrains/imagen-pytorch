@@ -167,8 +167,8 @@ class ElucidatedImagen(nn.Module):
 
         # unet image sizes
 
-        self.image_sizes = cast_tuple(image_sizes)
-        assert num_unets == len(image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {image_sizes}'
+        self.image_sizes = cast_tuple(self.image_sizes)
+        assert num_unets == len(self.image_sizes), f'you did not supply the correct number of u-nets ({len(self.unets)}) for resolutions {self.image_sizes}'
 
         self.sample_channels = cast_tuple(self.channels, num_unets)
 
