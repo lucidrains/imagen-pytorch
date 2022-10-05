@@ -649,6 +649,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] incorporate all learnings from make-a-video (https://makeavideo.studio/)
+- [ ] add learning points from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper
 
 ## Citations
 
