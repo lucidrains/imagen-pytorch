@@ -649,12 +649,14 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] incorporate all learnings from make-a-video (https://makeavideo.studio/)
-- [ ] add v-parameterization (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
+- [ ] add v-parameterization (the axial convolutions) (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
 
 ## Citations
 
 ```bibtex
 @inproceedings{Saharia2022PhotorealisticTD,
+    doi = {10.48550/ARXIV.2205.11487},
+    url = {https://arxiv.org/abs/2205.11487},
     title   = {Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding},
     author  = {Chitwan Saharia and William Chan and Saurabh Saxena and Lala Li and Jay Whang and Emily L. Denton and Seyed Kamyar Seyed Ghasemipour and Burcu Karagol Ayan and Seyedeh Sara Mahdavi and Raphael Gontijo Lopes and Tim Salimans and Jonathan Ho and David Fleet and Mohammad Norouzi},
     year    = {2022}
@@ -663,15 +665,20 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 
 ```bibtex
 @article{Alayrac2022Flamingo,
+    doi = {10.48550/ARXIV.2204.14198}, 
+    url = {https://arxiv.org/abs/2204.14198},
     title   = {Flamingo: a Visual Language Model for Few-Shot Learning},
-    author  = {Jean-Baptiste Alayrac et al},
+    author  = {Alayrac, Jean-Baptiste and Donahue, Jeff and Luc, Pauline and Miech, Antoine and Barr, Iain and Hasson, Yana and Lenc, Karel and Mensch, Arthur and Millican, Katie and Reynolds, Malcolm and Ring, Roman and Rutherford, Eliza and Cabi, Serkan and Han, Tengda and Gong, Zhitao and Samangooei, Sina and Monteiro, Marianne and Menick, Jacob and Borgeaud, Sebastian and Brock, Andrew and Nematzadeh, Aida and Sharifzadeh, Sahand and Binkowski, Mikolaj and Barreira, Ricardo and Vinyals, Oriol and Zisserman, Andrew and Simonyan, Karen},
     year    = {2022}
 }
 ```
 
 ```bibtex
 @article{Choi2022PerceptionPT,
+    doi = {10.48550/ARXIV.2204.00227},
+    url = {https://arxiv.org/abs/2204.00227},
     title   = {Perception Prioritized Training of Diffusion Models},
+    author = {Choi, Jooyoung and Lee, Jungbeom and Shin, Chaehun and Kim, Sungwon and Kim, Hyunwoo and Yoon, Sungroh},
     author  = {Jooyoung Choi and Jungbeom Lee and Chaehun Shin and Sungwon Kim and Hyunwoo J. Kim and Sung-Hoon Yoon},
     journal = {ArXiv},
     year    = {2022},
@@ -681,6 +688,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 
 ```bibtex
 @inproceedings{Sankararaman2022BayesFormerTW,
+    doi = {10.48550/ARXIV.2206.00826},
+    url = {https://arxiv.org/abs/2206.00826},
     title   = {BayesFormer: Transformer with Uncertainty Estimation},
     author  = {Karthik Abinav Sankararaman and Sinong Wang and Han Fang},
     year    = {2022}
@@ -781,5 +790,14 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2208.03641}
+}
+```
+
+```bibtex
+@inproceedings{Saharia2022HDvideo,
+    url = {https://imagen.research.google/video/paper.pdf},
+    title   = {Imagen Video: High Definition Video Generation With Diffusion Models},
+    author  = {Jonathan Ho, William Chan, Chitwan Saharia, Jay Whang, Ruiqi Gao, Alexey Gritsenko, Diederik P. Kingma, Ben Poole, Mohammad Norouzi, David J. Fleet, Tim Salimans},
+    year    = {2022}
 }
 ```
