@@ -630,7 +630,7 @@ class ElucidatedImagen(nn.Module):
                     lowres_cond_img = self.resize_to(img, image_size)
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
 
-                    lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
+                    lowres_cond_img, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 if exists(unet_init_images):
                     unet_init_images = self.resize_to(unet_init_images, image_size)
@@ -781,7 +781,7 @@ class ElucidatedImagen(nn.Module):
 
         lowres_cond_img_noisy = None
         if exists(lowres_cond_img):
-            lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+            lowres_cond_img_noisy, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
         # get the sigmas
 

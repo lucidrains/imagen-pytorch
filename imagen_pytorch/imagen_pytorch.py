@@ -252,7 +252,7 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         log_snr_padded_dim = right_pad_dims_to(x_start, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
 
-        return alpha * x_start + sigma * noise, log_snr
+        return alpha * x_start + sigma * noise, log_snr, alpha, sigma
 
     def q_sample_from_to(self, x_from, from_t, to_t, noise = None):
         shape, device, dtype = x_from.shape, x_from.device, x_from.dtype
@@ -275,6 +275,12 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         alpha_to, sigma_to =  log_snr_to_alpha_sigma(log_snr_padded_dim_to)
 
         return x_from * (alpha_to / alpha) + noise * (sigma_to * alpha - sigma * alpha_to) / alpha
+
+    def predict_start_from_v(self, x_t, t, v):
+        log_snr = self.log_snr(t)
+        log_snr = right_pad_dims_to(x_t, log_snr)
+        alpha, sigma = log_snr_to_alpha_sigma(log_snr)
+        return alpha * x_t - sigma * v
 
     def predict_start_from_noise(self, x_t, t, noise):
         log_snr = self.log_snr(t)
@@ -1997,6 +2003,8 @@ class Imagen(nn.Module):
             x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
         elif pred_objective == 'x_start':
             x_start = pred
+        elif pred_objective == 'v':
+            x_start = noise_scheduler.predict_start_from_v(x, t = t, v = pred)
         else:
             raise ValueError(f'unknown objective {pred_objective}')
 
@@ -2108,7 +2116,7 @@ class Imagen(nn.Module):
                 is_last_resample_step = r == 0
 
                 if has_inpainting:
-                    noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
+                    noised_inpaint_images, *_ = noise_scheduler.q_sample(inpaint_images, t = times)
                     img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
 
                 self_cond = x_start if unet.self_cond else None
@@ -2264,7 +2272,7 @@ class Imagen(nn.Module):
                     lowres_cond_img = self.resize_to(img, image_size)
 
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
-                    lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
+                    lowres_cond_img, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 if exists(unet_init_images):
                     unet_init_images = self.resize_to(unet_init_images, image_size)
@@ -2358,7 +2366,7 @@ class Imagen(nn.Module):
 
         # get x_t
 
-        x_noisy, log_snr = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
+        x_noisy, log_snr, alpha, sigma = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
 
         # also noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
@@ -2366,7 +2374,7 @@ class Imagen(nn.Module):
         lowres_cond_img_noisy = None
         if exists(lowres_cond_img):
             lowres_aug_times = default(lowres_aug_times, times)
-            lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+            lowres_cond_img_noisy, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
         # time condition
 
@@ -2416,6 +2424,11 @@ class Imagen(nn.Module):
             target = noise
         elif pred_objective == 'x_start':
             target = x_start
+        elif pred_objective == 'v':
+            # derivation detailed in Appendix D of Progressive Distillation paper
+            # https://arxiv.org/abs/2202.00512
+            # this makes distillation viable as well as solve an issue with color shifting in upresoluting unets, noted in imagen-video
+            target = alpha * noise - sigma * x_start
         else:
             raise ValueError(f'unknown objective {pred_objective}')
 
