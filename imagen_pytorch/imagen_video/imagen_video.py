@@ -341,6 +341,57 @@ class PerceiverResampler(nn.Module):
 
         return latents
 
+# pseudo 3d conv from make-a-video
+
+class PseudoConv3D(nn.Module):
+    def __init__(
+        self,
+        dim,
+        *,
+        kernel_size,
+        dim_out = None,
+        temporal_kernel_size = None,
+        **kwargs
+    ):
+        super().__init__()
+        dim_out = default(dim_out, dim)
+        temporal_kernel_size = default(temporal_kernel_size, kernel_size)
+
+        self.spatial_conv = nn.Conv2d(dim, dim_out, kernel_size = kernel_size, padding = kernel_size // 2)
+        self.temporal_conv = nn.Conv1d(dim_out, dim_out, kernel_size = temporal_kernel_size, padding = temporal_kernel_size // 2)
+
+        nn.init.dirac_(self.temporal_conv.weight.data) # initialized to be identity
+        nn.init.zeros_(self.temporal_conv.bias.data)
+
+    def forward(
+        self,
+        x,
+        convolve_across_time = True
+    ):
+        b, c, *_, h, w = x.shape
+
+        is_video = x.ndim == 5
+        convolve_across_time &= is_video
+
+        if is_video:
+            x = rearrange(x, 'b c f h w -> (b f) c h w')
+
+        x = self.spatial_conv(x)
+
+        if is_video:
+            x = rearrange(x, '(b f) c h w -> b c f h w', b = b)
+
+        if not convolve_across_time:
+            return x
+
+        x = rearrange(x, 'b c f h w -> (b h w) c f')
+
+        x = self.temporal_conv(x)
+
+        x = rearrange(x, '(b h w) c f -> b c f h w', h = h, w = w)
+
+        return x
+
 # attention
 
 class Attention(nn.Module):

@@ -775,11 +775,38 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 ```
 
 ```bibtex
+@misc{Singer2022,
+    author  = {Uriel Singer},
+    url     = {https://makeavideo.studio/Make-A-Video.pdf}
+}
+```
+
+```bibtex
 @article{Sunkara2022NoMS,
     title   = {No More Strided Convolutions or Pooling: A New CNN Building Block for Low-Resolution Images and Small Objects},
     author  = {Raja Sunkara and Tie Luo},
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2208.03641}
+}
+```
+
+```bibtex
+@article{Salimans2022ProgressiveDF,
+    title   = {Progressive Distillation for Fast Sampling of Diffusion Models},
+    author  = {Tim Salimans and Jonathan Ho},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2202.00512}
+}
+```
+
+```bibtx
+@article{Ho2022ImagenVH,
+    title   = {Imagen Video: High Definition Video Generation with Diffusion Models},
+    author  = {Jonathan Ho and William Chan and Chitwan Saharia and Jay Whang and Ruiqi Gao and Alexey A. Gritsenko and Diederik P. Kingma and Ben Poole and Mohammad Norouzi and David J. Fleet and Tim Salimans},
+    journal = {ArXiv},
+    year    = {2022},
+    volume  = {abs/2210.02303}
 }
 ```
