@@ -18,6 +18,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://huggingface.co/">🤗 Huggingface</a> for their amazing transformers library. The text encoder portion is pretty much taken care of because of them
 
+- <a href="http://www.jonathanho.me/">Jonathan Ho</a> for bringing about a revolution in generative artificial intelligence through <a href="https://arxiv.org/abs/2006.11239">his seminal paper</a>
+
 - <a href="https://github.com/sgugger">Sylvain</a> and <a href="https://github.com/muellerzr">Zachary</a> for the <a href="https://github.com/huggingface/accelerate">Accelerate</a> library, which this repository uses for distributed training
 
 - <a href="https://github.com/arogozhnikov">Alex</a> for <a href="https://github.com/arogozhnikov/einops">einops</a>, indispensable tool for tensor manipulation
@@ -628,6 +630,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] move video frames to sample function, as we will be attempting time extrapolation
 - [x] attention bias to null key / values should be a learned scalar of head dimension
 - [x] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
+- [x] add v-parameterization (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
@@ -649,7 +652,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] incorporate all learnings from make-a-video (https://makeavideo.studio/)
-- [ ] add v-parameterization (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
 
 ## Citations
 
@@ -801,7 +803,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 }
 ```
 
-```bibtx
+```bibtex
 @article{Ho2022ImagenVH,
     title   = {Imagen Video: High Definition Video Generation with Diffusion Models},
     author  = {Jonathan Ho and William Chan and Chitwan Saharia and Jay Whang and Ruiqi Gao and Alexey A. Gritsenko and Diederik P. Kingma and Ben Poole and Mohammad Norouzi and David J. Fleet and Tim Salimans},
