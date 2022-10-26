@@ -931,9 +931,12 @@ class ImagenTrainer(nn.Module):
         context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
 
         self.print_untrained_unets()        
+        
+        if not self.is_main:
+            kwargs['use_tqdm'] = False
 
         with context():
-            output = self.imagen.sample(*args, device = self.device, use_tqdm = self.is_main, **kwargs)
+            output = self.imagen.sample(*args, device = self.device, **kwargs)
 
         return output
 

@@ -2,7 +2,7 @@ import math
 import copy
 from random import random
 from typing import List, Union
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
 from collections import namedtuple
@@ -252,7 +252,7 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         log_snr_padded_dim = right_pad_dims_to(x_start, log_snr)
         alpha, sigma =  log_snr_to_alpha_sigma(log_snr_padded_dim)
 
-        return alpha * x_start + sigma * noise, log_snr
+        return alpha * x_start + sigma * noise, log_snr, alpha, sigma
 
     def q_sample_from_to(self, x_from, from_t, to_t, noise = None):
         shape, device, dtype = x_from.shape, x_from.device, x_from.dtype
@@ -275,6 +275,12 @@ class GaussianDiffusionContinuousTimes(nn.Module):
         alpha_to, sigma_to =  log_snr_to_alpha_sigma(log_snr_padded_dim_to)
 
         return x_from * (alpha_to / alpha) + noise * (sigma_to * alpha - sigma * alpha_to) / alpha
+
+    def predict_start_from_v(self, x_t, t, v):
+        log_snr = self.log_snr(t)
+        log_snr = right_pad_dims_to(x_t, log_snr)
+        alpha, sigma = log_snr_to_alpha_sigma(log_snr)
+        return alpha * x_t - sigma * v
 
     def predict_start_from_noise(self, x_t, t, noise):
         log_snr = self.log_snr(t)
@@ -1908,6 +1914,13 @@ class Imagen(nn.Module):
 
         self.to(next(self.unets.parameters()).device)
 
+    def force_unconditional_(self):
+        self.condition_on_text = False
+        self.unconditional = True
+
+        for unet in self.unets:
+            unet.cond_on_text = False
+
     @property
     def device(self):
         return self._temp.device
@@ -1990,6 +2003,8 @@ class Imagen(nn.Module):
             x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
         elif pred_objective == 'x_start':
             x_start = pred
+        elif pred_objective == 'v':
+            x_start = noise_scheduler.predict_start_from_v(x, t = t, v = pred)
         else:
             raise ValueError(f'unknown objective {pred_objective}')
 
@@ -2101,7 +2116,7 @@ class Imagen(nn.Module):
                 is_last_resample_step = r == 0
 
                 if has_inpainting:
-                    noised_inpaint_images, _ = noise_scheduler.q_sample(inpaint_images, t = times)
+                    noised_inpaint_images, *_ = noise_scheduler.q_sample(inpaint_images, t = times)
                     img = img * ~inpaint_masks + noised_inpaint_images * inpaint_masks
 
                 self_cond = x_start if unet.self_cond else None
@@ -2173,16 +2188,26 @@ class Imagen(nn.Module):
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert all([*map(len, texts)]), 'text cannot be empty'
+
             with autocast(enabled = False):
                 text_embeds, text_masks = self.encode_text(texts, return_attn_mask = True)
 
             text_embeds, text_masks = map(lambda t: t.to(device), (text_embeds, text_masks))
 
         if not self.unconditional:
-            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
+            assert exists(text_embeds), 'text must be passed in if the network was not trained without text `condition_on_text` must be set to `False` when training'
 
-        if not self.unconditional:
+            text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        if exists(inpaint_images):
+            if self.unconditional:
+                if batch_size == 1: # assume researcher wants to broadcast along inpainted images
+                    batch_size = inpaint_images.shape[0]
+
+            assert inpaint_images.shape[0] == batch_size, 'number of inpainting images must be equal to the specified batch size on sample `sample(batch_size=<int>)``'
+            assert not (self.condition_on_text and inpaint_images.shape[0] != text_embeds.shape[0]), 'number of inpainting images must be equal to the number of text to be conditioned on'
 
         assert not (self.condition_on_text and not exists(text_embeds)), 'text or text encodings must be passed into imagen if specified'
         assert not (not self.condition_on_text and exists(text_embeds)), 'imagen specified not to be conditioned on text, yet it is presented'
@@ -2247,7 +2272,7 @@ class Imagen(nn.Module):
                     lowres_cond_img = self.resize_to(img, image_size)
 
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
-                    lowres_cond_img, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
+                    lowres_cond_img, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 if exists(unet_init_images):
                     unet_init_images = self.resize_to(unet_init_images, image_size)
@@ -2341,7 +2366,7 @@ class Imagen(nn.Module):
 
         # get x_t
 
-        x_noisy, log_snr = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
+        x_noisy, log_snr, alpha, sigma = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
 
         # also noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
@@ -2349,7 +2374,7 @@ class Imagen(nn.Module):
         lowres_cond_img_noisy = None
         if exists(lowres_cond_img):
             lowres_aug_times = default(lowres_aug_times, times)
-            lowres_cond_img_noisy, _ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
+            lowres_cond_img_noisy, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_aug_times, noise = torch.randn_like(lowres_cond_img))
 
         # time condition
 
@@ -2399,6 +2424,11 @@ class Imagen(nn.Module):
             target = noise
         elif pred_objective == 'x_start':
             target = x_start
+        elif pred_objective == 'v':
+            # derivation detailed in Appendix D of Progressive Distillation paper
+            # https://arxiv.org/abs/2202.00512
+            # this makes distillation viable as well as solve an issue with color shifting in upresoluting unets, noted in imagen-video
+            target = alpha * noise - sigma * x_start
         else:
             raise ValueError(f'unknown objective {pred_objective}')
 
@@ -2458,6 +2488,7 @@ class Imagen(nn.Module):
         times = noise_scheduler.sample_random_times(b, device = device)
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
+            assert all([*map(len, texts)]), 'text cannot be empty'
             assert len(texts) == len(images), 'number of text captions does not match up with the number of images given'
 
             with autocast(enabled = False):

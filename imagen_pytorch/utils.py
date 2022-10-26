@@ -30,7 +30,7 @@ def load_imagen_from_checkpoint(
     elif imagen_type == 'elucidated':
         imagen_klass = ElucidatedImagenConfig
     else:
-        raise ValueError(f'unknown imagen type {imagen_type}')
+        raise ValueError(f'unknown imagen type {imagen_type} - you need to instantiate your Imagen with configurations, using classes ImagenConfig or ElucidatedImagenConfig')
 
     assert exists(imagen_params) and exists(imagen_type), 'imagen type and configuration not saved in this checkpoint'
 
