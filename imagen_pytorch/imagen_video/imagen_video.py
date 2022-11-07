@@ -564,7 +564,10 @@ class PixelShuffleUpsample(nn.Module):
 
 def Downsample(dim, dim_out = None):
     dim_out = default(dim_out, dim)
-    return Conv2d(dim, dim_out, 4, 2, 1)
+    return nn.Sequential(
+        Rearrange('b c f (h p1) (w p2) -> b (c p1 p2) f h w', p1 = 2, p2 = 2),
+        Conv2d(dim * 4, dim_out, 1)
+    )
 
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
