@@ -8,7 +8,8 @@ from imagen_pytorch.utils import safeget
 from imagen_pytorch import ImagenTrainer
 from imagen_pytorch import t5
 
-import accelerate
+import json
+
 def exists(val):
     return val is not None
 
@@ -27,9 +28,13 @@ def _convert_int_greater_zero(value):
     value = int(value)
     assert value > 0
     return value
+def _convert_int_percent(value):
+    value = int(value)
+    assert value > 0
+    return value / 100
 
 def _convert_int_greater_zero_or_none(value):
-    if value.lower() is not 'none':
+    if value.lower() != 'none':
         value = int(value)
         assert value > 0
         return value
@@ -41,15 +46,15 @@ def _convert_t5_name(value):
 
 def _convert_tuple_int(value):
     assert len(value) > 0
-    t =  map(int, value.split(' '))
-    if len(t) is 1:
+    t =  list(map(int, value.split(' ')))
+    if len(t) == 1:
         return t[0]
     return t
     
 def _convert_tuple_bool(value):
     assert len(value) > 0
-    t = map(_convert_true_false_to_bool, value.split(' '))
-    if len(t) is 1:
+    t = list(map(_convert_true_false_to_bool, value.split(' ')))
+    if len(t) == 1:
         return t[0]
     return t
 
@@ -107,22 +112,54 @@ def sample(
 def config():
     use_elucidated = ask('Should the Elucidated DDPM be used? [yes/NO]: ', _convert_yes_no_to_bool, False, 'Please enter yes or no')
     use_video = ask('Should the model be used for video? [yes/NO]: ', _convert_yes_no_to_bool, False, 'Please enter yes or no')
-    is_cond = ask('Should the model be conditional? [YES/no]: ', _convert_yes_no_to_bool, True, 'Please enter yes or no')
+    timesteps = ask('timesteps (numbers separated by space or one number): ', _convert_tuple_int, error_message = 'Please enter a value greater than 0 or a list of numbers')
+    is_cond = ask('Should the model be conditional on text? [YES/no]: ', _convert_yes_no_to_bool, True, 'Please enter yes or no')
+    
     num_unets = ask('How many unets? [3]: ', _convert_int_greater_zero, 3, 'Please enter a value greater than 0')
-
     t5_name = None
+    cond_drop_prob = 0.1
     if is_cond:
-        t5_name = ask('Please enter the name of the t5 model [google/t5-v1_1-base]: ', _convert_t5_name, 'google/t5-v1_1-base', 'Please enter a valid t5 model name')
+        t5_name = ask('Name of the t5 model [google/t5-v1_1-base]?: ', _convert_t5_name, 'google/t5-v1_1-base', 'Please enter a valid t5 model name')
+        cond_drop_prob = ask('How much percent of conditionals should be dropped? (1 - 100)?: ', _convert_int_percent, error_message= 'Please enter a value greater than 0')
 
+    config = {
+        'type': 'elucidated' if use_elucidated else 'original',
+        'video': use_video,
+        'timesteps': timesteps,
+        't5': t5_name,
+        'cond_drop_prob': cond_drop_prob,
+        'unets': [],
+        'image_sizes': [],
+        'condition_on_text': is_cond
+    }
+    random_crops = []
     for index in range(num_unets):
-        dim = ask('Dimension [128]: ', _convert_int_greater_zero, 128, 'Please enter a value greater than 0')
-        dim_mults = ask('Multiplicators for the dimension (numbers separated by space): ', _convert_tuple_int, error_message = 'Please enter a valid list of numbers greater than 1')
-        num_resnet_blocks = ask('Number of Resnet blocks?: ', _convert_int_greater_zero, error_message = 'Please enter a value greater than 0')
-        layer_attns = ask('Layer attentions (bools separated by space): ', _convert_tuple_bool, error_message = 'Please enter a valid list of bools')
-        layer_cross_attns = ask('Layer cross attentions (bools separated by space): ', _convert_tuple_bool, error_message = 'Please enter a valid list of bools')
+        print(f'Unet {index+1}')
+        dim = ask('Dimension [128]?: ', _convert_int_greater_zero, 128, 'Please enter a value greater than 0')
+        dim_mults = ask('Multiplicators for the dimension (numbers separated by space or one number)?: ', _convert_tuple_int, error_message = 'Please enter a value greater than 0 or a list of numbers')
+        num_resnet_blocks = ask('Number of Resnet blocks (numbers separated by space or one number)?: ', _convert_tuple_int, error_message = 'Please enter a value greater than 0 or a list of numbers')
+        layer_attns = ask('Layer attentions (bools separated by space or one bool): ', _convert_tuple_bool, error_message = 'Please enter a valid list of bools or a bool')
+        layer_cross_attns = ask('Layer cross attentions (bools separated by space or one bool)?: ', _convert_tuple_bool, error_message = 'Please enter a valid list of bools or a bool')
         attn_heads = ask('Number of attention heads? [8]: ', _convert_int_greater_zero, 8, 'Please enter a value greater than 0')
-        res = ask('image size of this Unet?: ', _convert_int_greater_zero, error_message='Please enter a value greater than 0')
+        resolution = ask('Image size of this Unet?: ', _convert_int_greater_zero, error_message='Please enter a value greater than 0')
         random_crop = ask('Random crop size for the unet?: ', _convert_int_greater_zero_or_none, error_message='Please enter a value greater than 0 or None')
+        config['unets'].append({
+            'dim': dim,
+            'dim_mults': dim_mults,
+            'num_resnet_blocks': num_resnet_blocks,
+            'layer_attns': layer_attns,
+            'layer_cross_attns': layer_cross_attns,
+            'attn_heads': attn_heads,
+        })
+        config['image_sizes'].append(resolution)
+        
+        random_crops.append(random_crop)
+    
+    if any(random_crops):
+        config['random_crop_sizes'] = random_crops
+    
+    with open('./imagen.cfg', 'w') as f:
+        f.write(json.dumps(config, indent = 4))
     
 
 @imagen.command()
