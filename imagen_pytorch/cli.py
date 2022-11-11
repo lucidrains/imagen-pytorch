@@ -142,12 +142,6 @@ def train(
     model_path = Path(config_data['checkpoint_path'])
     full_model_path = str(model_path.resolve())
     
-    if model_path.exists():
-        loaded = torch.load(str(model_path))
-        version = safeget(loaded, 'version')
-        print(f'loading Imagen from {full_model_path}, saved at version {version} - current package version is {__version__}')
-        trainer = ImagenTrainer(imagen_checkpoint_path=model_path)
-    else:
         if config_data['type'] == 'elucidated':
             imagen = ElucidatedImagenConfig(
                 **config_data['imagen']
@@ -160,6 +154,11 @@ def train(
             imagen=imagen,
             **config_data['trainer']
         )
+    if model_path.exists():
+        loaded = torch.load(str(model_path))
+        version = safeget(loaded, 'version')
+        print(f'loading Imagen from {full_model_path}, saved at version {version} - current package version is {__version__}')
+        trainer.load(model_path)
     trainer.cuda()
 
     size = config_data['imagen']['image_sizes'][unet-1]
