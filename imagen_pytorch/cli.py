@@ -119,7 +119,7 @@ def config():
 
 @imagen.command(help = 'Train the Imagen model')
 @click.option('--config', default = './imagen.cfg', help = 'path to the Imagen model config')
-@click.option('--unet', default = 1, help = 'unet to train')
+@click.option('--unet', default = 1, help = 'unet to train', type=click.IntRange(1, 3, False, True, True))
 @click.option('--epoches', default = 1000, help = 'amount of epoches to train for')
 @click.option('--text', required = False, help = 'text to sample with between epoches', type=str)
 @click.option('--valid', is_flag = True, default = False, help = 'Do validation with validation split')
@@ -167,8 +167,9 @@ def train(
 
     max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
 
+    ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
-        ds = load_dataset(config_data['dataset_name'])['train'],
+        ds = ds['train'],
         collate_fn = Collator(
             image_size=size,image_label=config_data['image_label'],
             text_label=config_data['text_label'],
@@ -178,8 +179,9 @@ def train(
         **config_data['dataset']
     )
     if not trainer.split_valid_from_train and valid:
+        assert 'valid' in ds, 'There is no validation split in the dataset'
         trainer.add_train_dataset(
-            ds = load_dataset(config_data['dataset_name'])['valid'],
+            ds = ds['valid'],
             collate_fn = Collator(
                 image_size=size,image_label=config_data['image_label'],
                 text_label=config_data['text_label'],
