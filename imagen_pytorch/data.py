@@ -5,8 +5,16 @@ import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T, utils
+import torch.nn.functional as F
+from imagen_pytorch import t5
 
 from PIL import Image
+
+from datasets.utils.file_utils import get_datasets_user_agent
+import io
+import urllib
+
+USER_AGENT = get_datasets_user_agent()
 
 # helpers functions
 
@@ -23,7 +31,73 @@ def convert_image_to(img_type, image):
         return image.convert(img_type)
     return image
 
-# dataset and dataloader
+# dataset, dataloader, collator
+
+class Collator:
+    def __init__(self, image_size, url_label, text_label, image_label, name):
+        self.url_label = url_label
+        self.text_label = text_label
+        self.image_label = image_label
+        self.download = url_label is not None
+        self.name = name
+        self.transform = T.Compose([
+            T.Resize(image_size),
+            T.CenterCrop(image_size),
+            T.ToTensor(),
+        ])
+    def __call__(self, batch):
+
+        texts = []
+        masks = []
+        images = []
+        for item in batch:
+            try:
+                if self.download:
+                    image = self.fetch_single_image(item[self.url_label])
+                else:
+                    image = item[self.image_label]
+                image = self.transform(image.convert('RGB'))
+            except:
+                continue
+
+            text, mask = t5.t5_encode_text([item[self.text_label]], return_attn_mask=True, name=self.name)
+            texts.append(text)
+            masks.append(mask)
+            images.append(image)
+
+        if len(masks) == 0:
+            return None
+
+        
+        max_len = max([masks[i].shape[1] for i in range(len(masks))])
+
+        newbatch = []
+        for i in range(len(masks)):
+            length = masks[i].shape[1]
+            rem = max_len - length
+            masks[i] = torch.squeeze(masks[i])
+            texts[i] = torch.squeeze(texts[i])
+            try:
+                if rem > 0:
+                    masks[i] = F.pad(masks[i], (0, rem), 'constant', 0)
+                    texts[i] = F.pad(texts[i], (0, 0, 0, rem), 'constant', False)
+            except:
+                continue
+            newbatch.append((images[i], texts[i], masks[i]))
+        return torch.utils.data.dataloader.default_collate(newbatch)
+
+    def fetch_single_image(self, image_url, timeout=1):
+        try:
+            request = urllib.request.Request(
+                image_url,
+                data=None,
+                headers={"user-agent": USER_AGENT},
+            )
+            with urllib.request.urlopen(request, timeout=timeout) as req:
+                image = Image.open(io.BytesIO(req.read())).convert('RGB')
+        except Exception:
+            image = None
+        return image
 
 class Dataset(Dataset):
     def __init__(

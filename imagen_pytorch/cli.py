@@ -4,8 +4,10 @@ from pathlib import Path
 
 from imagen_pytorch import load_imagen_from_checkpoint
 from imagen_pytorch.version import __version__
+from imagen_pytorch.data import Collator
 from imagen_pytorch.utils import safeget
 from imagen_pytorch import ImagenTrainer, ElucidatedImagenConfig, ImagenConfig
+from datasets import load_dataset
 
 import json
 
@@ -98,9 +100,14 @@ def config():
             ],
         },
         'trainer': {
-            'lr': 1e-4
+            'lr': 1e-4,
+
         },
-        'dataset': 'laion/laion2B-en',
+        'dataset': {
+            'name': 'laion/laion2B-en',
+            'batch_size': 2048,
+            'shuffle': True,
+        },
         'image_label': None,
         'url_label': 'URL',
         'text_label': 'TEXT',
@@ -113,9 +120,13 @@ def config():
 @imagen.command(help = 'Train the Imagen model')
 @click.option('--config', default = './imagen.cfg', help = 'path to the Imagen model config')
 @click.option('--unet', default = 1, help = 'unet to train')
+@click.option('--epoches', default = 1000, help = 'amount of epoches to train for')
+@click.option('--text', required = False, help = 'text to sample with between epoches', type=str)
 def train(
     config,
-    unet
+    unet,
+    epoches,
+    text
 ):
     # check config path
     
@@ -150,3 +161,32 @@ def train(
             **config_data['trainer']
         )
     trainer.cuda()
+
+    size = config_data['imagen']['image_sizes'][unet-1]
+
+    max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
+
+    trainer.add_train_dataset(
+        ds = load_dataset(config_data['dataset_name'])['train'],
+        collate_fn = Collator(
+            image_size=size,image_label=config_data['image_label'],
+            text_label=config_data['text_label'],
+            url_label=config_data['url_label'],
+            name=config_data['imagen']['text_encoder_name']
+        ),
+        **config_data['dataset']
+    )
+
+    for i in range(epoches):
+        loss = trainer.train_step(unet_number=unet, max_batch_size = max_batch_size)
+        print(f'loss: {loss}')
+
+        #if not (i % 50):
+        #    valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
+        #    print(f'valid loss: {valid_loss}')
+
+        if not (i % 100) and trainer.is_main and text is not None: # is_main makes sure this can run in distributed
+            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True) # returns List[Image]
+            images[0].save(f'./sample-{i // 100}.png')
+
+    trainer.save(model_path)
