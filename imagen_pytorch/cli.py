@@ -195,12 +195,12 @@ def train(
         loss = trainer.train_step(unet_number=unet, max_batch_size = max_batch_size)
         print(f'loss: {loss}')
 
-        if not (i % 50) and valid:
+        if not (i % 50) and i > 0 and valid:
             valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
             print(f'valid loss: {valid_loss}')
 
-        if not (i % 100) and trainer.is_main and text is not None: # is_main makes sure this can run in distributed
-            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True) # returns List[Image]
+        if not (i % 100) and i > 0 and trainer.is_main and text is not None: # is_main makes sure this can run in distributed
+            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = 1) # returns List[Image]
             images[0].save(f'./sample-{i // 100}.png')
 
     trainer.save(model_path)
