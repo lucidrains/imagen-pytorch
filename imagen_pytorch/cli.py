@@ -118,11 +118,11 @@ def config():
         f.write(json.dumps(config, indent = 4))
 
 @imagen.command(help = 'Train the Imagen model')
-@click.option('--config', default = './imagen.cfg', help = 'path to the Imagen model config')
-@click.option('--unet', default = 1, help = 'unet to train', type=click.IntRange(1, 3, False, True, True))
-@click.option('--epoches', default = 1000, help = 'amount of epoches to train for')
-@click.option('--text', required = False, help = 'text to sample with between epoches', type=str)
-@click.option('--valid', is_flag = True, default = False, help = 'Do validation with validation split')
+@click.option('--config', default = './imagen.cfg', help = 'Path to the Imagen model config')
+@click.option('--unet', default = 1, help = 'Unet to train', type = click.IntRange(1, 3, False, True, True))
+@click.option('--epoches', default = 1000, help = 'Amount of epoches to train for')
+@click.option('--text', required = False, help = 'Text to sample with between epoches', type=str)
+@click.option('--valid', is_flag = True, flag_value=50, default = 0, help = 'Do validation between epoches', show_default = True, type=int)
 def train(
     config,
     unet,
@@ -139,11 +139,13 @@ def train(
     with open(config_path, 'r') as f:
         config_data = json.loads(f.read())
 
-    assert 'checkpoint_path' in config_data, 'checkpoint path not found int config'
+    assert 'checkpoint_path' in config_data, 'checkpoint path not found in config'
     
     model_path = Path(config_data['checkpoint_path'])
     full_model_path = str(model_path.resolve())
     
+    # setup imagen config
+
         if config_data['type'] == 'elucidated':
             imagen = ElucidatedImagenConfig(
                 **config_data['imagen']
@@ -153,9 +155,11 @@ def train(
                 **config_data['imagen']
             ).create()
         trainer = ImagenTrainer(
-            imagen=imagen,
+        imagen = imagen,
             **config_data['trainer']
         )
+
+    # load pt
     if model_path.exists():
         loaded = torch.load(str(model_path))
         version = safeget(loaded, 'version')
@@ -167,40 +171,46 @@ def train(
 
     max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
 
+
+    # load and add train dataset and valid dataset
     ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
         ds = ds['train'],
         collate_fn = Collator(
-            image_size=size,image_label=config_data['image_label'],
-            text_label=config_data['text_label'],
-            url_label=config_data['url_label'],
-            name=config_data['imagen']['text_encoder_name']
+            image_size = size,
+            image_label = config_data['image_label'],
+            text_label = config_data['text_label'],
+            url_label = config_data['url_label'],
+            name = imagen.text_encoder_name
         ),
         **config_data['dataset']
     )
-    if not trainer.split_valid_from_train and valid:
+
+
+    if not trainer.split_valid_from_train and valid != 0:
         assert 'valid' in ds, 'There is no validation split in the dataset'
         trainer.add_train_dataset(
             ds = ds['valid'],
             collate_fn = Collator(
-                image_size=size,image_label=config_data['image_label'],
-                text_label=config_data['text_label'],
-                url_label=config_data['url_label'],
-                name=config_data['imagen']['text_encoder_name']
+                image_size = size,
+                image_label = config_data['image_label'],
+                text_label= config_data['text_label'],
+                url_label = config_data['url_label'],
+                name = imagen.text_encoder_name
             ),
             **config_data['dataset']
         )
 
     for i in range(epoches):
-        loss = trainer.train_step(unet_number=unet, max_batch_size = max_batch_size)
+        loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size)
         print(f'loss: {loss}')
 
-        if not (i % 50) and i > 0 and valid:
+        if not (i % valid) and i > 0 and valid != 0:
             valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
             print(f'valid loss: {valid_loss}')
 
-        if not (i % 100) and i > 0 and trainer.is_main and text is not None: # is_main makes sure this can run in distributed
-            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = 1) # returns List[Image]
+        if not (i % 100) and i > 0 and trainer.is_main and text is not None:
+            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = 1)
             images[0].save(f'./sample-{i // 100}.png')
 
     trainer.save(model_path)
