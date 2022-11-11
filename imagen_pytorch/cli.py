@@ -122,11 +122,13 @@ def config():
 @click.option('--unet', default = 1, help = 'unet to train')
 @click.option('--epoches', default = 1000, help = 'amount of epoches to train for')
 @click.option('--text', required = False, help = 'text to sample with between epoches', type=str)
+@click.option('--valid', is_flag = True, default = False, help = 'Do validation with validation split')
 def train(
     config,
     unet,
     epoches,
-    text
+    text,
+    valid
 ):
     # check config path
     
@@ -175,14 +177,25 @@ def train(
         ),
         **config_data['dataset']
     )
+    if not trainer.split_valid_from_train and valid:
+        trainer.add_train_dataset(
+            ds = load_dataset(config_data['dataset_name'])['valid'],
+            collate_fn = Collator(
+                image_size=size,image_label=config_data['image_label'],
+                text_label=config_data['text_label'],
+                url_label=config_data['url_label'],
+                name=config_data['imagen']['text_encoder_name']
+            ),
+            **config_data['dataset']
+        )
 
     for i in range(epoches):
         loss = trainer.train_step(unet_number=unet, max_batch_size = max_batch_size)
         print(f'loss: {loss}')
 
-        #if not (i % 50):
-        #    valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
-        #    print(f'valid loss: {valid_loss}')
+        if not (i % 50) and valid:
+            valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
+            print(f'valid loss: {valid_loss}')
 
         if not (i % 100) and trainer.is_main and text is not None: # is_main makes sure this can run in distributed
             images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True) # returns List[Image]
