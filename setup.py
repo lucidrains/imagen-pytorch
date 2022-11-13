@@ -43,8 +43,7 @@ setup(
     'torch>=1.6',
     'torchvision',
     'transformers',
-    'tqdm',
-    'json',
+    'tqdm'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
