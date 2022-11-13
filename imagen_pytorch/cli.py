@@ -103,8 +103,8 @@ def config():
             'lr': 1e-4,
 
         },
+        'dataset_name': 'laion/laion2B-en',
         'dataset': {
-            'name': 'laion/laion2B-en',
             'batch_size': 2048,
             'shuffle': True,
         },
@@ -146,18 +146,18 @@ def train(
     
     # setup imagen config
 
-        if config_data['type'] == 'elucidated':
-            imagen = ElucidatedImagenConfig(
-                **config_data['imagen']
-            ).create()
-        else:
-            imagen = ImagenConfig(
-                **config_data['imagen']
-            ).create()
-        trainer = ImagenTrainer(
-        imagen = imagen,
-            **config_data['trainer']
-        )
+    if config_data['type'] == 'elucidated':
+        imagen = ElucidatedImagenConfig(
+            **config_data['imagen']
+        ).create()
+    else:
+        imagen = ImagenConfig(
+            **config_data['imagen']
+        ).create()
+    trainer = ImagenTrainer(
+    imagen = imagen,
+        **config_data['trainer']
+    )
 
     # load pt
     if model_path.exists():
