@@ -153,7 +153,7 @@ def train(
         loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size)
         print(f'loss: {loss}')
 
-        if not (i % valid) and i > 0 and valid != 0:
+        if valid is not None and not (i % valid) and i > 0:
             valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
             print(f'valid loss: {valid_loss}')
 
