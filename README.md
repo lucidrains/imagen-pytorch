@@ -417,6 +417,8 @@ For the dataset parameters all dataloader parameters can be used.
 
 ### Training
 
+This command allows you to train or resume training your model
+
 ex.
 ```bash
 $ imagen train
