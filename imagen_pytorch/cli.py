@@ -75,7 +75,7 @@ def config(
 @click.option('--unet', default = 1, help = 'Unet to train', type = click.IntRange(1, 3, False, True, True))
 @click.option('--epoches', default = 1000, help = 'Amount of epoches to train for')
 @click.option('--text', required = False, help = 'Text to sample with between epoches', type=str)
-@click.option('--valid', is_flag = True, flag_value=50, default = 0, help = 'Do validation between epoches', show_default = True, type=int)
+@click.option('--valid', is_flag = False, flag_value=50, default = 0, help = 'Do validation between epoches', show_default = True)
 def train(
     config,
     unet,
@@ -84,7 +84,7 @@ def train(
     valid
 ):
     # check config path
-    
+
     config_path = Path(config)
     full_config_path = str(config_path.resolve())
     assert config_path.exists(), f'config not found at {full_config_path}'
@@ -135,9 +135,9 @@ def train(
     )
 
 
-    if not trainer.split_valid_from_train and valid is not None:
+    if not trainer.split_valid_from_train and valid != 0:
         assert 'valid' in ds, 'There is no validation split in the dataset'
-        trainer.add_train_dataset(
+        trainer.add_valid_dataset(
             ds = ds['valid'],
             collate_fn = Collator(
                 image_size = size,
@@ -153,7 +153,7 @@ def train(
         loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size)
         print(f'loss: {loss}')
 
-        if valid is not None and not (i % valid) and i > 0:
+        if valid != 0 and not (i % valid) and i > 0:
             valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
             print(f'valid loss: {valid_loss}')
 
