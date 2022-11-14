@@ -62,12 +62,12 @@ def sample(
     return
 
 @imagen.command(help = 'Generate a config for the Imagen model')
-@click.option('--config', default = './imagen_config.json', help = 'Path to the Imagen model config')
+@click.option('--path', default = './imagen_config.json', help = 'Path to the Imagen model config')
 def config(
-    config
+    path
 ):
     data = pkgutil.get_data(__name__, 'default_config.json').decode("utf-8") 
-    with open(config, 'w') as f:
+    with open(path, 'w') as f:
         f.write(data)
 
 @imagen.command(help = 'Train the Imagen model')
@@ -101,7 +101,7 @@ def train(
 
     imagen_config_klass = ElucidatedImagenConfig if config_data['type'] == 'elucidated' else ImagenConfig
     imagen = imagen_config_klass(**config_data['imagen']).create()
-    
+
     trainer = ImagenTrainer(
     imagen = imagen,
         **config_data['trainer']
