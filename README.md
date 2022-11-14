@@ -42,6 +42,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/animebing">Bingbing</a> for identifying a bug with sampling and order of normalizing and noising with low resolution conditioning image
 
+- <a href="https://github.com/TheFusion21">Kay</a> for contributing one line command training of Imagen!
+
 ## Install
 
 ```bash
