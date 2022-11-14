@@ -28,6 +28,7 @@ setup(
   install_requires=[
     'accelerate',
     'click',
+    'datasets',
     'einops>=0.4',
     'einops-exts',
     'ema-pytorch>=0.0.3',
