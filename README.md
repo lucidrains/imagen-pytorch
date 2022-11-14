@@ -398,11 +398,11 @@ Imagen can also be used via CLI directly.
 ex.
 
 ```bash
-imagen config
+$ imagen config
 ```
 or
 ```bash
-imagen config --path ./configs/config.json
+$ imagen config --path ./configs/config.json
 ```
 
 In the config you are able to change settings for the trainer, dataset and the imagen config.
@@ -419,11 +419,11 @@ For the dataset parameters all dataloader parameters can be used.
 
 ex.
 ```bash
-imagen train
+$ imagen train
 ```
 or
 ```bash
-imagen train --unet 2 --epoches 10000 --valid 100
+$ imagen train --unet 2 --epoches 10000 --valid 100
 ```
 
 You can pass following arguments to the training command.
