@@ -428,11 +428,11 @@ $ imagen train --unet 2 --epoches 10000 --valid 100
 
 You can pass following arguments to the training command.
 
-- `--config` specify the config file to use for training
-- `--unet` the index of the unet to train
-- `--epoches` how many epoches to train for
+- `--config` specify the config file to use for training [default: ./imagen_config.json]
+- `--unet` the index of the unet to train [default: 1]
+- `--epoches` how many epoches to train for [default: 1000]
 - `--text` specify the text to samples with for every 100 epoches
-- `--valid` enable validation and optionally specify how many epoches between each validation
+- `--valid` enable validation and optionally specify how many epoches between each validation [default: false]
 
 ### Sampling
 
