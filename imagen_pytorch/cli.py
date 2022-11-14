@@ -1,6 +1,7 @@
 import click
 import torch
 from pathlib import Path
+import pkgutil
 
 from imagen_pytorch import load_imagen_from_checkpoint
 from imagen_pytorch.version import __version__
@@ -61,64 +62,16 @@ def sample(
     return
 
 @imagen.command(help = 'Generate a config for the Imagen model')
-def config():
-    config = {
-        'type': 'original',
-        'imagen': {
-            'video': False,
-            'timesteps': [1024, 512, 512],
-            'image_sizes': [64, 256, 1024],
-            'random_crop_sizes': [None, 64, 256],
-            'condition_on_text': True,
-            'cond_drop_prob': 0.1,
-            'text_encoder_name': 'google/t5-v1_1-large',
-            'unets': [
-                {
-                    'dim': 512,
-                    'dim_mults': [1, 2, 3, 4],
-                    'num_resnet_blocks': 3,
-                    'layer_attns': [False, True, True, True],
-                    'layer_cross_attns': [False, True, True, True],
-                    'attn_heads': 8
-                },
-                {
-                    'dim': 128,
-                    'dim_mults': [1, 2, 3, 4],
-                    'num_resnet_blocks': [2, 4, 8, 8],
-                    'layer_attns': [False, False, False, True],
-                    'layer_cross_attns': [False, False, False, True],
-                    'attn_heads': 8
-                },
-                {
-                    'dim': 128,
-                    'dim_mults': [1, 2, 3, 4],
-                    'num_resnet_blocks': [2, 4, 8, 8],
-                    'layer_attns': False,
-                    'layer_cross_attns': [False, False, False, True],
-                    'attn_heads': 8
-                }
-            ],
-        },
-        'trainer': {
-            'lr': 1e-4,
-
-        },
-        'dataset_name': 'laion/laion2B-en',
-        'dataset': {
-            'batch_size': 2048,
-            'shuffle': True,
-        },
-        'image_label': None,
-        'url_label': 'URL',
-        'text_label': 'TEXT',
-        'checkpoint_path': './imagen.pt',
-        
-    }
-    with open('./imagen.cfg', 'w') as f:
-        f.write(json.dumps(config, indent = 4))
+@click.option('--config', default = './imagen_config.json', help = 'Path to the Imagen model config')
+def config(
+    config
+):
+    data = pkgutil.get_data(__name__, 'default_config.json').decode("utf-8") 
+    with open(config, 'w') as f:
+        f.write(data)
 
 @imagen.command(help = 'Train the Imagen model')
-@click.option('--config', default = './imagen.cfg', help = 'Path to the Imagen model config')
+@click.option('--config', default = './imagen_config.json', help = 'Path to the Imagen model config')
 @click.option('--unet', default = 1, help = 'Unet to train', type = click.IntRange(1, 3, False, True, True))
 @click.option('--epoches', default = 1000, help = 'Amount of epoches to train for')
 @click.option('--text', required = False, help = 'Text to sample with between epoches', type=str)
