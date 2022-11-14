@@ -391,16 +391,69 @@ That's it!
 
 ## Command-line
 
-To further democratize the use of this machine imagination, I have built in the ability to generate an image with any text prompt using one command line as so
+Imagen can also be used via CLI directly.
+
+### Configuration
 
 ex.
 
 ```bash
-$ imagen --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
+$ imagen config
+```
+or
+```bash
+$ imagen config --path ./configs/config.json
+```
+
+In the config you are able to change settings for the trainer, dataset and the imagen config.
+
+The Imagen config parameters can be found <a href="https://github.com/lucidrains/imagen-pytorch/blob/f8cc75f4d9020998c577b3770d3f260ce2ee2dcf/imagen_pytorch/configs.py#L68">here</a>
+
+The Elucidated Imagen config parameters can be found <a href="https://github.com/lucidrains/imagen-pytorch/blob/f8cc75f4d9020998c577b3770d3f260ce2ee2dcf/imagen_pytorch/configs.py#L108">here</a>
+
+The Imagen Trainer config parameters can be found <a href="https://github.com/lucidrains/imagen-pytorch/blob/f8cc75f4d9020998c577b3770d3f260ce2ee2dcf/imagen_pytorch/trainer.py#L226">here</a>
+
+For the dataset parameters all dataloader parameters can be used.
+
+### Training
+
+This command allows you to train or resume training your model
+
+ex.
+```bash
+$ imagen train
+```
+or
+```bash
+$ imagen train --unet 2 --epoches 10000 --valid 100
+```
+
+You can pass following arguments to the training command.
+
+- `--config` specify the config file to use for training [default: ./imagen_config.json]
+- `--unet` the index of the unet to train [default: 1]
+- `--epoches` how many epoches to train for [default: 1000]
+- `--text` specify the text to samples with for every 100 epoches
+- `--valid` enable validation and optionally specify how many epoches between each validation [default: false]
+
+### Sampling
+
+Be aware when sampling your checkpoint should have trained all unets to get a usable result.
+
+ex.
+
+```bash
+$ imagen sample --model ./path/to/model/checkpoint.pt "a squirrel raiding the birdfeeder"
 # image is saved to ./a_squirrel_raiding_the_birdfeeder.png
 ```
 
-In order to save checkpoints that can make use of this feature, you must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig`
+You can pass following arguments to the sample command.
+
+- `--model` specify the model file to use for sampling
+- `--cond_scale` conditioning scale (classifier free guidance) in decoder
+- `--load_ema` load EMA version of unets if available
+
+In order to use a saved checkpoint with this feature, you either must instantiate your Imagen instance using the config classes, `ImagenConfig` and `ElucidatedImagenConfig` or create a checkpoint via the CLI directly
 
 For proper training, you'll likely want to setup config-driven training anyways.
 
