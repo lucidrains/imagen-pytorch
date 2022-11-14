@@ -135,7 +135,7 @@ def train(
     )
 
 
-    if not trainer.split_valid_from_train and valid != 0:
+    if not trainer.split_valid_from_train and valid is not None:
         assert 'valid' in ds, 'There is no validation split in the dataset'
         trainer.add_train_dataset(
             ds = ds['valid'],

@@ -7,6 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T, utils
 import torch.nn.functional as F
 from imagen_pytorch import t5
+from torch.nn.utils.rnn import pad_sequence
 
 from PIL import Image
 
@@ -48,7 +49,6 @@ class Collator:
     def __call__(self, batch):
 
         texts = []
-        masks = []
         images = []
         for item in batch:
             try:
@@ -60,30 +60,16 @@ class Collator:
             except:
                 continue
 
-            text, mask = t5.t5_encode_text([item[self.text_label]], return_attn_mask=True, name=self.name)
-            texts.append(text)
-            masks.append(mask)
+            text = t5.t5_encode_text([item[self.text_label]], name=self.name)
+            texts.append(torch.squeeze(text))
             images.append(image)
 
-        if len(masks) == 0:
-            return None
-
-        
-        max_len = max([masks[i].shape[1] for i in range(len(masks))])
+        texts = pad_sequence(texts, True)
 
         newbatch = []
-        for i in range(len(masks)):
-            length = masks[i].shape[1]
-            rem = max_len - length
-            masks[i] = torch.squeeze(masks[i])
-            texts[i] = torch.squeeze(texts[i])
-            try:
-                if rem > 0:
-                    masks[i] = F.pad(masks[i], (0, rem), 'constant', 0)
-                    texts[i] = F.pad(texts[i], (0, 0, 0, rem), 'constant', False)
-            except:
-                continue
-            newbatch.append((images[i], texts[i], masks[i]))
+        for i in range(len(texts)):
+            newbatch.append((images[i], texts[i]))
+
         return torch.utils.data.dataloader.default_collate(newbatch)
 
     def fetch_single_image(self, image_url, timeout=1):
