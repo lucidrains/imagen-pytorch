@@ -99,14 +99,9 @@ def train(
     
     # setup imagen config
 
-    if config_data['type'] == 'elucidated':
-        imagen = ElucidatedImagenConfig(
-            **config_data['imagen']
-        ).create()
-    else:
-        imagen = ImagenConfig(
-            **config_data['imagen']
-        ).create()
+    imagen_config_klass = ElucidatedImagenConfig if config_data['type'] == 'elucidated' else ImagenConfig
+    imagen = imagen_config_klass(**config_data['imagen']).create()
+    
     trainer = ImagenTrainer(
     imagen = imagen,
         **config_data['trainer']
