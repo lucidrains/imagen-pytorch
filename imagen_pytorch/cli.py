@@ -25,7 +25,7 @@ def main():
 def imagen():
     pass
 
-@imagen.command(help = 'Sample from the Imagem model checkpoint')
+@imagen.command(help = 'Sample from the Imagen model checkpoint')
 @click.option('--model', default = './imagen.pt', help = 'path to trained Imagen model')
 @click.option('--cond_scale', default = 5, help = 'conditioning scale (classifier free guidance) in decoder')
 @click.option('--load_ema', default = True, help = 'load EMA version of unets if available')
