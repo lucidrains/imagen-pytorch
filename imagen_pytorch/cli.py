@@ -147,7 +147,8 @@ def train(
                 image_label = config_data['image_label'],
                 text_label= config_data['text_label'],
                 url_label = config_data['url_label'],
-                name = imagen.text_encoder_name
+                name = imagen.text_encoder_name,
+                channels = channels 
             ),
             **config_data['dataset']
         )
