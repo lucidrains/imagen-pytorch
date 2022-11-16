@@ -35,12 +35,13 @@ def convert_image_to(img_type, image):
 # dataset, dataloader, collator
 
 class Collator:
-    def __init__(self, image_size, url_label, text_label, image_label, name):
+    def __init__(self, image_size, url_label, text_label, image_label, name, channels):
         self.url_label = url_label
         self.text_label = text_label
         self.image_label = image_label
         self.download = url_label is not None
         self.name = name
+        self.channels = channels
         self.transform = T.Compose([
             T.Resize(image_size),
             T.CenterCrop(image_size),
@@ -56,7 +57,7 @@ class Collator:
                     image = self.fetch_single_image(item[self.url_label])
                 else:
                     image = item[self.image_label]
-                image = self.transform(image.convert('RGB'))
+                image = self.transform(image.convert(self.channels))
             except:
                 continue
 

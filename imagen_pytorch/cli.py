@@ -119,7 +119,9 @@ def train(
 
     max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
 
-
+    channels = 'RGB'
+    if 'channels' in config_data['imagen'] and config_data['imagen']['channels'] == 4:
+        channels = 'RGBA'
     # load and add train dataset and valid dataset
     ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
@@ -129,7 +131,8 @@ def train(
             image_label = config_data['image_label'],
             text_label = config_data['text_label'],
             url_label = config_data['url_label'],
-            name = imagen.text_encoder_name
+            name = imagen.text_encoder_name,
+            channels = channels
         ),
         **config_data['dataset']
     )
