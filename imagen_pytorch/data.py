@@ -65,6 +65,9 @@ class Collator:
             texts.append(torch.squeeze(text))
             images.append(image)
 
+        if len(texts) == 0:
+            return None
+        
         texts = pad_sequence(texts, True)
 
         newbatch = []
