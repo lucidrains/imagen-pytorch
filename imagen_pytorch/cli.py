@@ -174,7 +174,7 @@ def train(
             print(f'valid loss: {valid_loss}')
 
         if not (i % 100) and i > 0 and trainer.is_main and text is not None:
-            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = 1)
+            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = unet)
             images[0].save(f'./sample-{i // 100}.png')
 
     trainer.save(model_path)
