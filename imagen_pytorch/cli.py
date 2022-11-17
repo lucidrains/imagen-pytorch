@@ -120,8 +120,15 @@ def train(
     max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
 
     channels = 'RGB'
-    if 'channels' in config_data['imagen'] and config_data['imagen']['channels'] == 4:
-        channels = 'RGBA'
+    if 'channels' in config_data['imagen']:
+        assert config_data['imagen']['channels'] > 0 and config_data['imagen']['channels'] < 5, 'Imagen only support 1 to 4 channels L, LA, RGB, RGBA'
+        if config_data['imagen']['channels'] == 4:
+            channels = 'RGBA' # Color with alpha
+        elif config_data['imagen']['channels'] == 2:
+            channels == 'LA' # Luminance (Greyscale) with alpha
+        elif config_data['imagen']['channels'] == 1:
+            channels = 'L' # Luminance (Greyscale)
+
     # load and add train dataset and valid dataset
     ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
