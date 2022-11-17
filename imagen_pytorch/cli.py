@@ -113,7 +113,9 @@ def train(
         version = safeget(loaded, 'version')
         print(f'loading Imagen from {full_model_path}, saved at version {version} - current package version is {__version__}')
         trainer.load(model_path)
-    trainer.cuda()
+        
+    if torch.cuda.is_available():
+        trainer = trainer.cuda()
 
     size = config_data['imagen']['image_sizes'][unet-1]
 
