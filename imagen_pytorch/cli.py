@@ -129,6 +129,9 @@ def train(
         elif config_data['imagen']['channels'] == 1:
             channels = 'L' # Luminance (Greyscale)
 
+
+    assert 'batch_size' in config_data['dataset'], 'A batch_size is required in the config file'
+    
     # load and add train dataset and valid dataset
     ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
