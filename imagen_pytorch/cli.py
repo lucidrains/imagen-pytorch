@@ -113,13 +113,27 @@ def train(
         version = safeget(loaded, 'version')
         print(f'loading Imagen from {full_model_path}, saved at version {version} - current package version is {__version__}')
         trainer.load(model_path)
-    trainer.cuda()
+        
+    if torch.cuda.is_available():
+        trainer = trainer.cuda()
 
     size = config_data['imagen']['image_sizes'][unet-1]
 
     max_batch_size = config_data['max_batch_size'] if 'max_batch_size' in config_data else 1
 
+    channels = 'RGB'
+    if 'channels' in config_data['imagen']:
+        assert config_data['imagen']['channels'] > 0 and config_data['imagen']['channels'] < 5, 'Imagen only support 1 to 4 channels L, LA, RGB, RGBA'
+        if config_data['imagen']['channels'] == 4:
+            channels = 'RGBA' # Color with alpha
+        elif config_data['imagen']['channels'] == 2:
+            channels == 'LA' # Luminance (Greyscale) with alpha
+        elif config_data['imagen']['channels'] == 1:
+            channels = 'L' # Luminance (Greyscale)
 
+
+    assert 'batch_size' in config_data['dataset'], 'A batch_size is required in the config file'
+    
     # load and add train dataset and valid dataset
     ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
@@ -129,7 +143,8 @@ def train(
             image_label = config_data['image_label'],
             text_label = config_data['text_label'],
             url_label = config_data['url_label'],
-            name = imagen.text_encoder_name
+            name = imagen.text_encoder_name,
+            channels = channels
         ),
         **config_data['dataset']
     )
@@ -144,7 +159,8 @@ def train(
                 image_label = config_data['image_label'],
                 text_label= config_data['text_label'],
                 url_label = config_data['url_label'],
-                name = imagen.text_encoder_name
+                name = imagen.text_encoder_name,
+                channels = channels 
             ),
             **config_data['dataset']
         )
@@ -158,7 +174,7 @@ def train(
             print(f'valid loss: {valid_loss}')
 
         if not (i % 100) and i > 0 and trainer.is_main and text is not None:
-            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = 1)
+            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = unet)
             images[0].save(f'./sample-{i // 100}.png')
 
     trainer.save(model_path)
