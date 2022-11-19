@@ -46,7 +46,7 @@ def default(val, d):
 def cast_tuple(val, length = 1):
     if isinstance(val, list):
         val = tuple(val)
-    
+
     return val if isinstance(val, tuple) else ((val,) * length)
 
 def find_first(fn, arr):
@@ -253,6 +253,8 @@ class ImagenTrainer(nn.Module):
         checkpoint_fs = None,
         fs_kwargs: dict = None,
         max_checkpoints_keep = 20,
+        train_dataloader = None,
+        val_dataloader = None,
         **kwargs
     ):
         super().__init__()
@@ -313,10 +315,10 @@ class ImagenTrainer(nn.Module):
         # data related functions
 
         self.train_dl_iter = None
-        self.train_dl = None
+        self.train_dl = train_dataloader
 
         self.valid_dl_iter = None
-        self.valid_dl = None
+        self.valid_dl = val_dataloader
 
         self.dl_tuple_output_keywords_names = dl_tuple_output_keywords_names
 
@@ -455,13 +457,15 @@ class ImagenTrainer(nn.Module):
             return
 
         unet = self.imagen.get_unet(unet_number)
-        self.unet_being_trained = self.accelerator.prepare(unet)
         unet_index = unet_number - 1
 
         optimizer = getattr(self, f'optim{unet_index}')
         scheduler = getattr(self, f'scheduler{unet_index}')
 
-        optimizer = self.accelerator.prepare(optimizer)
+        if self.train_dl:
+            self.unet_being_trained, self.train_dl, optimizer = self.accelerator.prepare(unet, self.train_dataloader, optimizer)
+        else:
+            self.unet_being_trained, optimizer = self.accelerator.prepare(unet, optimizer)
 
         if exists(scheduler):
             scheduler = self.accelerator.prepare(scheduler)
@@ -930,8 +934,8 @@ class ImagenTrainer(nn.Module):
     def sample(self, *args, **kwargs):
         context = nullcontext if  kwargs.pop('use_non_ema', False) else self.use_ema_unets
 
-        self.print_untrained_unets()        
-        
+        self.print_untrained_unets()
+
         if not self.is_main:
             kwargs['use_tqdm'] = False
 
