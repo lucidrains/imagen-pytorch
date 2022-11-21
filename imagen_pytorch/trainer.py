@@ -253,8 +253,6 @@ class ImagenTrainer(nn.Module):
         checkpoint_fs = None,
         fs_kwargs: dict = None,
         max_checkpoints_keep = 20,
-        train_dataloader = None,
-        val_dataloader = None,
         **kwargs
     ):
         super().__init__()
@@ -315,10 +313,10 @@ class ImagenTrainer(nn.Module):
         # data related functions
 
         self.train_dl_iter = None
-        self.train_dl = train_dataloader
+        self.train_dl = None
 
         self.valid_dl_iter = None
-        self.valid_dl = val_dataloader
+        self.valid_dl = None
 
         self.dl_tuple_output_keywords_names = dl_tuple_output_keywords_names
 
@@ -402,8 +400,12 @@ class ImagenTrainer(nn.Module):
         # only allowing training for unet
 
         self.only_train_unet_number = only_train_unet_number
-        self.validate_and_set_unet_being_trained(only_train_unet_number)
+        self.prepared = False
 
+
+    def prepare(self):
+        assert not self.prepared, f'The trainer is allready prepared'
+        self.validate_and_set_unet_being_trained(self.only_train_unet_number)
     # computed values
 
     @property
@@ -463,7 +465,7 @@ class ImagenTrainer(nn.Module):
         scheduler = getattr(self, f'scheduler{unet_index}')
 
         if self.train_dl:
-            self.unet_being_trained, self.train_dl, optimizer = self.accelerator.prepare(unet, self.train_dataloader, optimizer)
+            self.unet_being_trained, self.train_dl, optimizer = self.accelerator.prepare(unet, self.train_dl, optimizer)
         else:
             self.unet_being_trained, optimizer = self.accelerator.prepare(unet, optimizer)
 
@@ -533,14 +535,16 @@ class ImagenTrainer(nn.Module):
             return
 
         assert not exists(self.train_dl), 'training dataloader was already added'
-        self.train_dl = self.accelerator.prepare(dl)
+        assert not self.prepared, f'You need to add the dataset before preperation'
+        self.train_dl = dl
 
     def add_valid_dataloader(self, dl):
         if not exists(dl):
             return
 
         assert not exists(self.valid_dl), 'validation dataloader was already added'
-        self.valid_dl = self.accelerator.prepare(dl)
+        assert not self.prepared, f'You need to add the dataset before preperation'
+        self.valid_dl = dl
 
     def add_train_dataset(self, ds = None, *, batch_size, **dl_kwargs):
         if not exists(ds):
@@ -557,7 +561,7 @@ class ImagenTrainer(nn.Module):
             self.print(f'training with dataset of {len(ds)} samples and validating with randomly splitted {len(valid_ds)} samples')
 
         dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
-        self.train_dl = self.accelerator.prepare(dl)
+        self.add_train_dataloader(dl)
 
         if not self.split_valid_from_train:
             return
@@ -571,7 +575,7 @@ class ImagenTrainer(nn.Module):
         assert not exists(self.valid_dl), 'validation dataloader was already added'
 
         dl = DataLoader(ds, batch_size = batch_size, **dl_kwargs)
-        self.valid_dl = self.accelerator.prepare(dl)
+        self.add_valid_dataloader(dl)
 
     def create_train_iter(self):
         assert exists(self.train_dl), 'training dataloader has not been registered with the trainer yet'
@@ -590,6 +594,8 @@ class ImagenTrainer(nn.Module):
         self.valid_dl_iter = cycle(self.valid_dl)
 
     def train_step(self, unet_number = None, **kwargs):
+        if not self.prepared:
+            self.prepare()
         self.create_train_iter()
         loss = self.step_with_dl_iter(self.train_dl_iter, unet_number = unet_number, **kwargs)
         self.update(unet_number = unet_number)
@@ -598,10 +604,10 @@ class ImagenTrainer(nn.Module):
     @torch.no_grad()
     @eval_decorator
     def valid_step(self, **kwargs):
+        if not self.prepared:
+            self.prepare()
         self.create_valid_iter()
-
         context = self.use_ema_unets if kwargs.pop('use_ema_unets', False) else nullcontext
-
         with context():
             loss = self.step_with_dl_iter(self.valid_dl_iter, **kwargs)
         return loss
