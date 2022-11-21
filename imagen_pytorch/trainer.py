@@ -406,6 +406,7 @@ class ImagenTrainer(nn.Module):
     def prepare(self):
         assert not self.prepared, f'The trainer is allready prepared'
         self.validate_and_set_unet_being_trained(self.only_train_unet_number)
+        self.prepared = True
     # computed values
 
     @property
