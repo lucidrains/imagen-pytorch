@@ -27,6 +27,7 @@ setup(
   ],
   install_requires=[
     'accelerate',
+    'beartype',
     'click',
     'datasets',
     'einops>=0.6',

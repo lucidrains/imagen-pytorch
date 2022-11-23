@@ -2,6 +2,7 @@ import math
 import copy
 from random import random
 from typing import List, Union
+from beartype import beartype
 from tqdm.auto import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
@@ -1747,6 +1748,7 @@ class SRUnet1024(Unet):
 
 # main imagen ddpm class, which is a cascading DDPM from Ho et al.
 
+@beartype
 class Imagen(nn.Module):
     def __init__(
         self,
