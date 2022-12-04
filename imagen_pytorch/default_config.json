@@ -19,7 +19,7 @@
             },
             {
                 "dim": 128,
-                "dim_mults": [1, 2, 3, 4],
+                "dim_mults": [1, 2, 4, 8],
                 "num_resnet_blocks": [2, 4, 8, 8],
                 "layer_attns": [false, false, false, true],
                 "layer_cross_attns": [false, false, false, true],
@@ -27,7 +27,7 @@
             },
             {
                 "dim": 128,
-                "dim_mults": [1, 2, 3, 4],
+                "dim_mults": [1, 2, 4, 8],
                 "num_resnet_blocks": [2, 4, 8, 8],
                 "layer_attns": false,
                 "layer_cross_attns": [false, false, false, true],
