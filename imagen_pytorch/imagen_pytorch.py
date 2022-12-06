@@ -1748,7 +1748,6 @@ class SRUnet1024(Unet):
 
 # main imagen ddpm class, which is a cascading DDPM from Ho et al.
 
-@beartype
 class Imagen(nn.Module):
     def __init__(
         self,
@@ -2167,6 +2166,7 @@ class Imagen(nn.Module):
 
     @torch.no_grad()
     @eval_decorator
+    @beartype
     def sample(
         self,
         texts: List[str] = None,
@@ -2326,6 +2326,7 @@ class Imagen(nn.Module):
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
 
+    @beartype
     def p_losses(
         self,
         unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
@@ -2453,6 +2454,7 @@ class Imagen(nn.Module):
 
         return losses.mean()
 
+    @beartype
     def forward(
         self,
         images,
