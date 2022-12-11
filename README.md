@@ -604,7 +604,10 @@ videos = torch.randn(4, 3, 10, 32, 32).cuda() # (batch, channels, time / video f
 # for this example, only training unet 1
 
 trainer = ImagenTrainer(imagen)
-trainer(videos, texts = texts, unet_number = 1)
+
+# you can also ignore time when training on video initially, shown to improve results in video-ddpm paper. eventually will make the 3d unet trainable with either images or video. research shows it is essential (with current data regimes) to train first on text-to-image. probably won't be true in another decade. all big data becomes small data
+
+trainer(videos, texts = texts, unet_number = 1, ignore_time = False)
 trainer.update(unet_number = 1)
 
 videos = trainer.sample(texts = texts, video_frames = 20) # extrapolating to 20 frames from training on 10 frames

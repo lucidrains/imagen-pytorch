@@ -341,15 +341,16 @@ class PerceiverResampler(nn.Module):
 
         return latents
 
-# pseudo 3d conv from make-a-video
+# main contribution from make-a-video - pseudo conv3d
+# axial space-time convolutions, but made causal to keep in line with the design decisions of imagen-video paper
 
-class PseudoConv3D(nn.Module):
+class Conv3d(nn.Module):
     def __init__(
         self,
         dim,
-        *,
-        kernel_size,
         dim_out = None,
+        kernel_size = 3,
+        *,
         temporal_kernel_size = None,
         **kwargs
     ):
@@ -358,20 +359,22 @@ class PseudoConv3D(nn.Module):
         temporal_kernel_size = default(temporal_kernel_size, kernel_size)
 
         self.spatial_conv = nn.Conv2d(dim, dim_out, kernel_size = kernel_size, padding = kernel_size // 2)
-        self.temporal_conv = nn.Conv1d(dim_out, dim_out, kernel_size = temporal_kernel_size, padding = temporal_kernel_size // 2)
+        self.temporal_conv = nn.Conv1d(dim_out, dim_out, kernel_size = temporal_kernel_size) if kernel_size > 1 else None
+        self.kernel_size = kernel_size
 
-        nn.init.dirac_(self.temporal_conv.weight.data) # initialized to be identity
-        nn.init.zeros_(self.temporal_conv.bias.data)
+        if exists(self.temporal_conv):
+            nn.init.dirac_(self.temporal_conv.weight.data) # initialized to be identity
+            nn.init.zeros_(self.temporal_conv.bias.data)
 
     def forward(
         self,
         x,
-        convolve_across_time = True
+        ignore_time = False
     ):
         b, c, *_, h, w = x.shape
 
         is_video = x.ndim == 5
-        convolve_across_time &= is_video
+        ignore_time &= is_video
 
         if is_video:
             x = rearrange(x, 'b c f h w -> (b f) c h w')
@@ -381,10 +384,15 @@ class PseudoConv3D(nn.Module):
         if is_video:
             x = rearrange(x, '(b f) c h w -> b c f h w', b = b)
 
-        if not convolve_across_time:
+        if ignore_time or not exists(self.temporal_conv):
             return x
 
         x = rearrange(x, 'b c f h w -> (b h w) c f')
+
+        # causal temporal convolution - time is causal in imagen-video
+
+        if self.kernel_size > 1:
+            x = F.pad(x, (self.kernel_size - 1, 0))
 
         x = self.temporal_conv(x)
 
@@ -612,9 +620,14 @@ class Block(nn.Module):
         super().__init__()
         self.groupnorm = nn.GroupNorm(groups, dim) if norm else Identity()
         self.activation = nn.SiLU()
-        self.project = Conv2d(dim, dim_out, 3, padding = 1)
+        self.project = Conv3d(dim, dim_out, 3, padding = 1)
 
-    def forward(self, x, scale_shift = None):
+    def forward(
+        self,
+        x,
+        scale_shift = None,
+        ignore_time = False
+    ):
         x = self.groupnorm(x)
 
         if exists(scale_shift):
@@ -622,7 +635,7 @@ class Block(nn.Module):
             x = x * (scale + 1) + shift
 
         x = self.activation(x)
-        return self.project(x)
+        return self.project(x, ignore_time = ignore_time)
 
 class ResnetBlock(nn.Module):
     def __init__(
@@ -671,7 +684,13 @@ class ResnetBlock(nn.Module):
         self.res_conv = Conv2d(dim, dim_out, 1) if dim != dim_out else Identity()
 
 
-    def forward(self, x, time_emb = None, cond = None):
+    def forward(
+        self,
+        x,
+        time_emb = None,
+        cond = None,
+        ignore_time = False
+    ):
 
         scale_shift = None
         if exists(self.time_mlp) and exists(time_emb):
@@ -679,13 +698,13 @@ class ResnetBlock(nn.Module):
             time_emb = rearrange(time_emb, 'b c -> b c 1 1 1')
             scale_shift = time_emb.chunk(2, dim = 1)
 
-        h = self.block1(x)
+        h = self.block1(x, ignore_time = ignore_time)
 
         if exists(self.cross_attn):
             assert exists(cond)
             h = self.cross_attn(h, context = cond) + h
 
-        h = self.block2(h, scale_shift = scale_shift)
+        h = self.block2(h, scale_shift = scale_shift, ignore_time = ignore_time)
 
         h = h * self.gca(h)
 
@@ -1545,12 +1564,19 @@ class Unet3D(nn.Module):
 
         time_attn_bias = self.time_rel_pos_bias(frames, device = device, dtype = dtype)
 
+        # ignoring time in pseudo 3d resnet blocks
+
+        conv_kwargs = dict(
+            ignore_time = ignore_time
+        )
+
         # initial convolution
 
         x = self.init_conv(x)
 
-        x = self.init_temporal_peg(x)
-        x = self.init_temporal_attn(x, attn_bias = time_attn_bias)
+        if not ignore_time:
+            x = self.init_temporal_peg(x)
+            x = self.init_temporal_attn(x, attn_bias = time_attn_bias)
 
         # init conv residual
 
@@ -1651,7 +1677,7 @@ class Unet3D(nn.Module):
         # initial resnet block (for memory efficient unet)
 
         if exists(self.init_resnet_block):
-            x = self.init_resnet_block(x, t)
+            x = self.init_resnet_block(x, t, **conv_kwargs)
 
         # go through the layers of the unet, down and up
 
@@ -1661,10 +1687,10 @@ class Unet3D(nn.Module):
             if exists(pre_downsample):
                 x = pre_downsample(x)
 
-            x = init_block(x, t, c)
+            x = init_block(x, t, c, **conv_kwargs)
 
             for resnet_block in resnet_blocks:
-                x = resnet_block(x, t)
+                x = resnet_block(x, t, **conv_kwargs)
                 hiddens.append(x)
 
             x = attn_block(x, c)
@@ -1678,7 +1704,7 @@ class Unet3D(nn.Module):
             if exists(post_downsample):
                 x = post_downsample(x)
 
-        x = self.mid_block1(x, t, c)
+        x = self.mid_block1(x, t, c, **conv_kwargs)
 
         if exists(self.mid_attn):
             x = self.mid_attn(x)
@@ -1687,7 +1713,7 @@ class Unet3D(nn.Module):
             x = self.mid_temporal_peg(x)
             x = self.mid_temporal_attn(x, attn_bias = time_attn_bias)
 
-        x = self.mid_block2(x, t, c)
+        x = self.mid_block2(x, t, c, **conv_kwargs)
 
         add_skip_connection = lambda x: torch.cat((x, hiddens.pop() * self.skip_connect_scale), dim = 1)
 
@@ -1695,11 +1721,11 @@ class Unet3D(nn.Module):
 
         for init_block, resnet_blocks, attn_block, temporal_peg, temporal_attn, upsample in self.ups:
             x = add_skip_connection(x)
-            x = init_block(x, t, c)
+            x = init_block(x, t, c, **conv_kwargs)
 
             for resnet_block in resnet_blocks:
                 x = add_skip_connection(x)
-                x = resnet_block(x, t)
+                x = resnet_block(x, t, **conv_kwargs)
 
             x = attn_block(x, c)
 
@@ -1720,7 +1746,7 @@ class Unet3D(nn.Module):
             x = torch.cat((x, init_conv_residual), dim = 1)
 
         if exists(self.final_res_block):
-            x = self.final_res_block(x, t)
+            x = self.final_res_block(x, t, **conv_kwargs)
 
         if exists(lowres_cond_img):
             x = torch.cat((x, lowres_cond_img), dim = 1)
