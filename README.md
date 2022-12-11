@@ -689,6 +689,9 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] attention bias to null key / values should be a learned scalar of head dimension
 - [x] add self-conditioning from <a href="https://arxiv.org/abs/2208.04202">bit diffusion</a> paper, already coded up at <a href="https://github.com/lucidrains/denoising-diffusion-pytorch/commit/beb2f2d8dd9b4f2bd5be4719f37082fe061ee450">ddpm-pytorch</a>
 - [x] add v-parameterization (https://arxiv.org/abs/2202.00512) from <a href="https://imagen.research.google/video/paper.pdf">imagen video</a> paper, the only thing new
+- [x] incorporate all learnings from make-a-video (https://makeavideo.studio/)
+- [x] build out CLI tool for training, resuming training off config file
+
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
@@ -698,7 +701,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] investigate frank wood's claims https://github.com/lucidrains/flexible-diffusion-modeling-videos-pytorch and either add the hierarchical sampling technique, or let people know about its deficiencies
 - [ ] make sure inpainting works with video
 - [ ] offer challenging moving mnist (with distractor objects) as a one-line trainable baseline for researchers to branch off of for text to video
-- [x] build out CLI tool for training, resuming training off config file
 - [ ] preencoding of text to memmapped embeddings
 - [ ] be able to create dataloader iterators based on the old epoch style, also configure shuffling etc
 - [ ] be able to also pass in arguments (instead of requiring forward to be all keyword args on model)
@@ -709,7 +711,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] accommodate <a href="https://dreambooth.github.io/">dream booth</a> fine tuning
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
-- [ ] incorporate all learnings from make-a-video (https://makeavideo.studio/)
 - [ ] make sure eventual dreambooth works with imagen-video
 
 ## Citations
