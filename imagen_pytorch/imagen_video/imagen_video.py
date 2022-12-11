@@ -430,7 +430,13 @@ class Attention(nn.Module):
             LayerNorm(dim)
         )
 
-    def forward(self, x, context = None, mask = None, attn_bias = None):
+    def forward(
+        self,
+        x,
+        context = None,
+        mask = None,
+        attn_bias = None
+    ):
         b, n, device = *x.shape[:2], x.device
 
         x = self.norm(x)
@@ -1505,7 +1511,8 @@ class Unet3D(nn.Module):
         text_mask = None,
         cond_images = None,
         self_cond = None,
-        cond_drop_prob = 0.
+        cond_drop_prob = 0.,
+        ignore_time = False
     ):
         assert x.ndim == 5, 'input to 3d unet must have 5 dimensions (batch, channels, time, height, width)'
 
@@ -1661,8 +1668,10 @@ class Unet3D(nn.Module):
                 hiddens.append(x)
 
             x = attn_block(x, c)
-            x = temporal_peg(x)
-            x = temporal_attn(x, attn_bias = time_attn_bias)
+
+            if not ignore_time:
+                x = temporal_peg(x)
+                x = temporal_attn(x, attn_bias = time_attn_bias)
 
             hiddens.append(x)
 
@@ -1674,8 +1683,9 @@ class Unet3D(nn.Module):
         if exists(self.mid_attn):
             x = self.mid_attn(x)
 
-        x = self.mid_temporal_peg(x)
-        x = self.mid_temporal_attn(x, attn_bias = time_attn_bias)
+        if not ignore_time:
+            x = self.mid_temporal_peg(x)
+            x = self.mid_temporal_attn(x, attn_bias = time_attn_bias)
 
         x = self.mid_block2(x, t, c)
 
@@ -1692,8 +1702,10 @@ class Unet3D(nn.Module):
                 x = resnet_block(x, t)
 
             x = attn_block(x, c)
-            x = temporal_peg(x)
-            x = temporal_attn(x, attn_bias = time_attn_bias)
+
+            if not ignore_time:
+                x = temporal_peg(x)
+                x = temporal_attn(x, attn_bias = time_attn_bias)
 
             up_hiddens.append(x.contiguous())
             x = upsample(x)

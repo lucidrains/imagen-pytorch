@@ -2343,7 +2343,8 @@ class Imagen(nn.Module):
         times_next = None,
         pred_objective = 'noise',
         p2_loss_weight_gamma = 0.,
-        random_crop_size = None
+        random_crop_size = None,
+        **kwargs
     ):
         is_video = x_start.ndim == 5
 
@@ -2398,6 +2399,7 @@ class Imagen(nn.Module):
             lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_aug_times),
             lowres_cond_img = lowres_cond_img_noisy,
             cond_drop_prob = self.cond_drop_prob,
+            **kwargs
         )
 
         # self condition if needed
@@ -2463,7 +2465,8 @@ class Imagen(nn.Module):
         text_embeds = None,
         text_masks = None,
         unet_number = None,
-        cond_images = None
+        cond_images = None,
+        **kwargs
     ):
         assert images.shape[-1] == images.shape[-2], f'the images you pass in must be a square, but received dimensions of {images.shape[2]}, {images.shape[-1]}'
         assert not (len(self.unets) > 1 and not exists(unet_number)), f'you must specify which unet you want trained, from a range of 1 to {len(self.unets)}, if you are training cascading DDPM (multiple unets)'
@@ -2527,4 +2530,4 @@ class Imagen(nn.Module):
 
         images = self.resize_to(images, target_image_size)
 
-        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size)
+        return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size, **kwargs)
