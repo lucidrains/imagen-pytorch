@@ -616,6 +616,10 @@ videos.shape # (4, 3, 20, 32, 32)
 
 ```
 
+You can also train on text - image pairs first. The Unet3d will automatically convert it to single framed videos and learn without the temporal components, whether convolutions or attention.
+
+This is the approach taken by all the big artificial intelligence labs (Brain, MetaAI, Bytedance)
+
 ## FAQ
 
 - Why are my generated images not aligning well with the text?
