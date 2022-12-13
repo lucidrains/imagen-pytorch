@@ -25,7 +25,7 @@ from einops_exts import rearrange_many, repeat_many, check_shape
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
-from imagen_pytorch.imagen_video.imagen_video import Unet3D, resize_video_to
+from imagen_pytorch.imagen_video import Unet3D, resize_video_to
 
 # helper functions
 

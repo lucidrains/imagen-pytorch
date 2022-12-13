@@ -40,7 +40,7 @@ from imagen_pytorch.imagen_pytorch import (
     unnormalize_zero_to_one,
 )
 
-from imagen_pytorch.imagen_video.imagen_video import (
+from imagen_pytorch.imagen_video import (
     Unet3D,
     resize_video_to
 )
