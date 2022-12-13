@@ -716,6 +716,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] add textual inversion
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] make sure eventual dreambooth works with imagen-video
+- [ ] allow for temporal interpolation at specific stages
 
 ## Citations
 
