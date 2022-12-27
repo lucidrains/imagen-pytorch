@@ -1,7 +1,7 @@
 import math
 import copy
 from random import random
-from typing import List, Union
+from beartype.typing import List, Union
 from beartype import beartype
 from tqdm.auto import tqdm
 from functools import partial, wraps
