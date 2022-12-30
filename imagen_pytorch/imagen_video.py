@@ -411,7 +411,8 @@ class Attention(nn.Module):
         heads = 8,
         causal = False,
         context_dim = None,
-        cosine_sim_attn = False
+        cosine_sim_attn = False,
+        init_zero = False
     ):
         super().__init__()
         self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
@@ -437,6 +438,9 @@ class Attention(nn.Module):
             nn.Linear(inner_dim, dim, bias = False),
             LayerNorm(dim)
         )
+
+        if init_zero:
+            nn.init.zeros_(self.to_out[-1].g)
 
     def forward(
         self,
@@ -1291,7 +1295,7 @@ class Unet3D(nn.Module):
         temporal_peg_padding = (0, 0, 0, 0, 2, 0) if time_causal_attn else (0, 0, 0, 0, 1, 1)
         temporal_peg = lambda dim: Residual(nn.Sequential(Pad(temporal_peg_padding), nn.Conv3d(dim, dim, (3, 1, 1), groups = dim)))
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn})))
+        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn, 'init_zero': True})))
 
         # temporal attention relative positional encoding
 
