@@ -155,6 +155,9 @@ def split(t, split_size = None):
     if isinstance(t, Iterable):
         return split_iterable(t, split_size)
 
+    if isinstance(t, bool):
+        return (t,) * split_size
+
     return TypeError
 
 def find_first(cond, arr):
