@@ -483,7 +483,9 @@ class ElucidatedImagen(nn.Module):
 
                 # second order correction, if not the last timestep
 
-                if sigma_next != 0:
+                has_second_order_correction = sigma_next != 0
+
+                if has_second_order_correction:
                     self_cond = model_output if unet.self_cond else None
 
                     model_output_next = self.preconditioned_network_forward(
@@ -504,7 +506,7 @@ class ElucidatedImagen(nn.Module):
                     repaint_noise = torch.randn(shape, device = self.device)
                     images = images + (sigma - sigma_next) * repaint_noise
 
-                x_start = model_output  # save model output for self conditioning
+                x_start = model_output if not has_second_order_correction else model_output_next # save model output for self conditioning
 
         images = images.clamp(-1., 1.)
 
