@@ -29,11 +29,11 @@ from imagen_pytorch.imagen_pytorch import (
     default,
     cast_tuple,
     cast_uint8_images_to_float,
-    is_float_dtype,
     eval_decorator,
     check_shape,
     pad_tuple_to_length,
     resize_image_to,
+    calc_all_frame_dims,
     right_pad_dims_to,
     module_device,
     normalize_neg_one_to_one,
@@ -83,6 +83,7 @@ class ElucidatedImagen(nn.Module):
         channels = 3,
         cond_drop_prob = 0.1,
         random_crop_sizes = None,
+        temporal_downsample_factor = 1,
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
@@ -195,6 +196,14 @@ class ElucidatedImagen(nn.Module):
 
         self.dynamic_thresholding = cast_tuple(dynamic_thresholding, num_unets)
         self.dynamic_thresholding_percentile = dynamic_thresholding_percentile
+
+        # temporal interpolations
+
+        temporal_downsample_factor = cast_tuple(temporal_downsample_factor, num_unets)
+        self.temporal_downsample_factor = temporal_downsample_factor
+
+        assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
+        assert all([left >= right for left, right in zip((1, *temporal_downsample_factor[:-1]), temporal_downsample_factor[1:])]), 'temporal downssample factor must be in order of descending'
 
         # elucidating parameters
 
@@ -589,7 +598,12 @@ class ElucidatedImagen(nn.Module):
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
-        frame_dims = (video_frames,) if self.is_video else tuple()
+        # determine the frame dimensions, if needed
+
+        if self.is_video:
+            all_frame_dims = calc_all_frame_dims(self.temporal_downsample_factor, video_frames)
+        else:
+            all_frame_dims = (tuple(),) * num_unets
 
         # initializing with an image or video
 
@@ -613,7 +627,7 @@ class ElucidatedImagen(nn.Module):
 
         # go through each unet in cascade
 
-        for unet_number, unet, channel, image_size, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
+        for unet_number, unet, channel, image_size, frame_dims, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, all_frame_dims, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
             if unet_number < start_at_unet_number:
                 continue
 
@@ -626,16 +640,20 @@ class ElucidatedImagen(nn.Module):
 
                 shape = (batch_size, channel, *frame_dims, image_size, image_size)
 
+                resize_kwargs = dict()
+                if self.is_video:
+                    resize_kwargs = dict(target_frames = frame_dims[0])
+
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
-                    lowres_cond_img = self.resize_to(img, image_size)
+                    lowres_cond_img = self.resize_to(img, image_size, **resize_kwargs)
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
 
                     lowres_cond_img, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 if exists(unet_init_images):
-                    unet_init_images = self.resize_to(unet_init_images, image_size)
+                    unet_init_images = self.resize_to(unet_init_images, image_size, **resize_kwargs)
 
                 shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
@@ -710,7 +728,7 @@ class ElucidatedImagen(nn.Module):
         images = cast_uint8_images_to_float(images)
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
-        assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
+        assert images.dtype == torch.float, f'images tensor needs to be floats but {images.dtype} dtype found instead'
 
         unet_index = unet_number - 1
         
@@ -725,7 +743,13 @@ class ElucidatedImagen(nn.Module):
 
         batch_size, c, *_, h, w, device, is_video = *images.shape, images.device, (images.ndim == 5)
 
-        frames = images.shape[2] if is_video else None
+        frames              = images.shape[2] if is_video else None
+        all_frame_dims      = tuple(el[0] for el in calc_all_frame_dims(self.temporal_downsample_factor, frames))
+        ignore_time         = kwargs.get('ignore_time', False)
+
+        target_frame_size   = all_frame_dims[unet_index] if is_video and not ignore_time else None
+        prev_frame_size     = all_frame_dims[unet_index - 1] if is_video and not ignore_time and unet_index > 0 else None
+        frames_to_resize_kwargs = lambda frames: dict(target_frames = frames) if exists(frames) else dict()
 
         check_shape(images, 'b c ...', c = self.channels)
 
@@ -750,8 +774,8 @@ class ElucidatedImagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = self.resize_to(images, prev_image_size, clamp_range = self.input_image_range)
-            lowres_cond_img = self.resize_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(images, prev_image_size, **frames_to_resize_kwargs(prev_frame_size), clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(lowres_cond_img, target_image_size, **frames_to_resize_kwargs(target_frame_size), clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(batch_size, device = device)
@@ -759,7 +783,7 @@ class ElucidatedImagen(nn.Module):
                 lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
                 lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = batch_size)
 
-        images = self.resize_to(images, target_image_size)
+        images = self.resize_to(images, target_image_size, **frames_to_resize_kwargs(target_frame_size))
 
         # normalize to [-1, 1]
 

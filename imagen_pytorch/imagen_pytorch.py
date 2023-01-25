@@ -35,6 +35,9 @@ def exists(val):
 def identity(t, *args, **kwargs):
     return t
 
+def divisible_by(numer, denom):
+    return (numer % denom) == 0
+
 def first(arr, d = None):
     if len(arr) == 0:
         return d
@@ -76,9 +79,6 @@ def cast_tuple(val, length = None):
         assert len(output) == length
 
     return output
-
-def is_float_dtype(dtype):
-    return any([dtype == float_dtype for float_dtype in (torch.float64, torch.float32, torch.float16, torch.bfloat16)])
 
 def cast_uint8_images_to_float(images):
     if not images.dtype == torch.uint8:
@@ -157,6 +157,18 @@ def resize_image_to(
         out = out.clamp(*clamp_range)
 
     return out
+
+def calc_all_frame_dims(
+    downsample_factors: List[int],
+    frames
+):
+    all_frame_dims = []
+
+    for divisor in downsample_factors:
+        assert divisible_by(frames, divisor)
+        all_frame_dims.append((frames // divisor,))
+
+    return all_frame_dims
 
 # image normalization functions
 # ddpms expect images to be in the range of -1 to 1
@@ -1124,7 +1136,7 @@ class Unet(nn.Module):
         cosine_sim_attn = False,
         self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
-        pixel_shuffle_upsample = True        # may address checkboard artifacts
+        pixel_shuffle_upsample = True,       # may address checkboard artifacts
     ):
         super().__init__()
 
@@ -1772,7 +1784,8 @@ class Imagen(nn.Module):
         p2_loss_weight_k = 1,
         dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.95,     # unsure what this was based on perusal of paper
-        only_train_unet_number = None
+        only_train_unet_number = None,
+        temporal_downsample_factor = 1
     ):
         super().__init__()
 
@@ -1881,6 +1894,13 @@ class Imagen(nn.Module):
 
         self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
         self.resize_to = resize_video_to if is_video else resize_image_to
+
+        # temporal interpolation
+
+        temporal_downsample_factor = cast_tuple(temporal_downsample_factor, num_unets)
+        self.temporal_downsample_factor = temporal_downsample_factor
+        assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
+        assert all([left >= right for left, right in zip((1, *temporal_downsample_factor[:-1]), temporal_downsample_factor[1:])]), 'temporal downssample factor must be in order of descending'
 
         # cascading ddpm related stuff
 
@@ -2240,7 +2260,12 @@ class Imagen(nn.Module):
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
-        frame_dims = (video_frames,) if self.is_video else tuple()
+        if self.is_video:
+            all_frame_dims = calc_all_frame_dims(self.temporal_downsample_factor, video_frames)
+        else:
+            all_frame_dims = (tuple(),) * num_unets
+
+        frames_to_resize_kwargs = lambda frames: dict(target_frames = frames) if exists(frames) else dict()
 
         # for initial image and skipping steps
 
@@ -2257,11 +2282,12 @@ class Imagen(nn.Module):
             assert exists(start_image_or_video), 'starting image or video must be supplied if only doing upscaling'
 
             prev_image_size = self.image_sizes[start_at_unet_number - 2]
-            img = self.resize_to(start_image_or_video, prev_image_size)
+            prev_frame_size = all_frame_dims[start_at_unet_number - 2][0] if self.is_video else None
+            img = self.resize_to(start_image_or_video, prev_image_size, **frames_to_resize_kwargs(prev_frame_size))
 
         # go through each unet in cascade
 
-        for unet_number, unet, channel, image_size, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
+        for unet_number, unet, channel, image_size, frame_dims, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, all_frame_dims, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
 
             if unet_number < start_at_unet_number:
                 continue
@@ -2274,16 +2300,18 @@ class Imagen(nn.Module):
                 lowres_cond_img = lowres_noise_times = None
                 shape = (batch_size, channel, *frame_dims, image_size, image_size)
 
+                resize_kwargs = dict(target_frames = frame_dims[0]) if self.is_video else dict()
+
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
 
-                    lowres_cond_img = self.resize_to(img, image_size)
+                    lowres_cond_img = self.resize_to(img, image_size, **resize_kwargs)
 
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
                     lowres_cond_img, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
                 if exists(unet_init_images):
-                    unet_init_images = self.resize_to(unet_init_images, image_size)
+                    unet_init_images = self.resize_to(unet_init_images, image_size, **resize_kwargs)
 
                 shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
@@ -2480,7 +2508,7 @@ class Imagen(nn.Module):
         images = cast_uint8_images_to_float(images)
         cond_images = maybe(cast_uint8_images_to_float)(cond_images)
 
-        assert is_float_dtype(images.dtype), f'images tensor needs to be floats but {images.dtype} dtype found instead'
+        assert images.dtype == torch.float, f'images tensor needs to be floats but {images.dtype} dtype found instead'
 
         unet_index = unet_number - 1
 
@@ -2500,7 +2528,13 @@ class Imagen(nn.Module):
         check_shape(images, 'b c ...', c = self.channels)
         assert h >= target_image_size and w >= target_image_size
 
-        frames = images.shape[2] if is_video else None
+        frames              = images.shape[2] if is_video else None
+        all_frame_dims      = tuple(el[0] for el in calc_all_frame_dims(self.temporal_downsample_factor, frames))
+        ignore_time         = kwargs.get('ignore_time', False)
+
+        target_frame_size   = all_frame_dims[unet_index] if is_video and not ignore_time else None
+        prev_frame_size     = all_frame_dims[unet_index - 1] if is_video and not ignore_time and unet_index > 0 else None
+        frames_to_resize_kwargs = lambda frames: dict(target_frames = frames) if exists(frames) else dict()
 
         times = noise_scheduler.sample_random_times(b, device = device)
 
@@ -2523,8 +2557,8 @@ class Imagen(nn.Module):
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
-            lowres_cond_img = self.resize_to(images, prev_image_size, clamp_range = self.input_image_range)
-            lowres_cond_img = self.resize_to(lowres_cond_img, target_image_size, clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(images, prev_image_size, **frames_to_resize_kwargs(prev_frame_size), clamp_range = self.input_image_range)
+            lowres_cond_img = self.resize_to(lowres_cond_img, target_image_size, **frames_to_resize_kwargs(target_frame_size), clamp_range = self.input_image_range)
 
             if self.per_sample_random_aug_noise_level:
                 lowres_aug_times = self.lowres_noise_schedule.sample_random_times(b, device = device)
@@ -2532,6 +2566,6 @@ class Imagen(nn.Module):
                 lowres_aug_time = self.lowres_noise_schedule.sample_random_times(1, device = device)
                 lowres_aug_times = repeat(lowres_aug_time, '1 -> b', b = b)
 
-        images = self.resize_to(images, target_image_size)
+        images = self.resize_to(images, target_image_size, **frames_to_resize_kwargs(target_frame_size))
 
         return self.p_losses(unet, images, times, text_embeds = text_embeds, text_mask = text_masks, cond_images = cond_images, noise_scheduler = noise_scheduler, lowres_cond_img = lowres_cond_img, lowres_aug_times = lowres_aug_times, pred_objective = pred_objective, p2_loss_weight_gamma = p2_loss_weight_gamma, random_crop_size = random_crop_size, **kwargs)
