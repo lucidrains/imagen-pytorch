@@ -34,6 +34,7 @@ from imagen_pytorch.imagen_pytorch import (
     pad_tuple_to_length,
     resize_image_to,
     calc_all_frame_dims,
+    safe_get_tuple_index,
     right_pad_dims_to,
     module_device,
     normalize_neg_one_to_one,
@@ -397,6 +398,12 @@ class ElucidatedImagen(nn.Module):
         sigma_max = None,
         **kwargs
     ):
+        # video
+
+        is_video = len(shape) == 5
+        frames = shape[-3] if is_video else None
+        resize_kwargs = dict(target_frames = frames) if exists(frames) else dict()
+
         # get specific sampling hyperparameters for unet
 
         hp = self.hparams[unet_number - 1]
@@ -438,7 +445,7 @@ class ElucidatedImagen(nn.Module):
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
-            inpaint_images = self.resize_to(inpaint_images, shape[-1])
+            inpaint_images = self.resize_to(inpaint_images, shape[-1], **resize_kwargs)
             inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
 
         # unet kwargs
@@ -600,10 +607,7 @@ class ElucidatedImagen(nn.Module):
 
         # determine the frame dimensions, if needed
 
-        if self.is_video:
-            all_frame_dims = calc_all_frame_dims(self.temporal_downsample_factor, video_frames)
-        else:
-            all_frame_dims = (tuple(),) * num_unets
+        all_frame_dims = calc_all_frame_dims(self.temporal_downsample_factor, video_frames)
 
         # initializing with an image or video
 
@@ -744,7 +748,7 @@ class ElucidatedImagen(nn.Module):
         batch_size, c, *_, h, w, device, is_video = *images.shape, images.device, (images.ndim == 5)
 
         frames              = images.shape[2] if is_video else None
-        all_frame_dims      = tuple(el[0] for el in calc_all_frame_dims(self.temporal_downsample_factor, frames))
+        all_frame_dims      = tuple(safe_get_tuple_index(el, 0) for el in calc_all_frame_dims(self.temporal_downsample_factor, frames))
         ignore_time         = kwargs.get('ignore_time', False)
 
         target_frame_size   = all_frame_dims[unet_index] if is_video and not ignore_time else None

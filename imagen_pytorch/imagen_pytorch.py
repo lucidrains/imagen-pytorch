@@ -162,6 +162,9 @@ def calc_all_frame_dims(
     downsample_factors: List[int],
     frames
 ):
+    if not exists(frames):
+        return (tuple(),) * len(downsample_factors)
+
     all_frame_dims = []
 
     for divisor in downsample_factors:
@@ -169,6 +172,11 @@ def calc_all_frame_dims(
         all_frame_dims.append((frames // divisor,))
 
     return all_frame_dims
+
+def safe_get_tuple_index(tup, index, default = None):
+    if len(tup) <= index:
+        return default
+    return tup[index]
 
 # image normalization functions
 # ddpms expect images to be in the range of -1 to 1
@@ -2108,6 +2116,12 @@ class Imagen(nn.Module):
         batch = shape[0]
         img = torch.randn(shape, device = device)
 
+        # video
+
+        is_video = len(shape) == 5
+        frames = shape[-3] if is_video else None
+        resize_kwargs = dict(target_frames = frames) if exists(frames) else dict()
+
         # for initialization with an image or video
 
         if exists(init_images):
@@ -2124,7 +2138,7 @@ class Imagen(nn.Module):
 
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
-            inpaint_images = self.resize_to(inpaint_images, shape[-1])
+            inpaint_images = self.resize_to(inpaint_images, shape[-1], **resize_kwargs)
             inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
 
         # time
@@ -2260,10 +2274,7 @@ class Imagen(nn.Module):
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
-        if self.is_video:
-            all_frame_dims = calc_all_frame_dims(self.temporal_downsample_factor, video_frames)
-        else:
-            all_frame_dims = (tuple(),) * num_unets
+        all_frame_dims = calc_all_frame_dims(self.temporal_downsample_factor, video_frames)
 
         frames_to_resize_kwargs = lambda frames: dict(target_frames = frames) if exists(frames) else dict()
 
@@ -2529,7 +2540,7 @@ class Imagen(nn.Module):
         assert h >= target_image_size and w >= target_image_size
 
         frames              = images.shape[2] if is_video else None
-        all_frame_dims      = tuple(el[0] for el in calc_all_frame_dims(self.temporal_downsample_factor, frames))
+        all_frame_dims      = tuple(safe_get_tuple_index(el, 0) for el in calc_all_frame_dims(self.temporal_downsample_factor, frames))
         ignore_time         = kwargs.get('ignore_time', False)
 
         target_frame_size   = all_frame_dims[unet_index] if is_video and not ignore_time else None
