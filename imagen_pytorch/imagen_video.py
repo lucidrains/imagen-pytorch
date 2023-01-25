@@ -137,6 +137,7 @@ def masked_mean(t, *, dim, mask = None):
 def resize_video_to(
     video,
     target_image_size,
+    target_frames = None,
     clamp_range = None
 ):
     orig_video_size = video.shape[-1]
@@ -144,16 +145,15 @@ def resize_video_to(
     if orig_video_size == target_image_size:
         return video
 
-
     frames = video.shape[2]
-    video = rearrange(video, 'b c f h w -> (b f) c h w')
+    target_frames = default(target_frames, frames)
 
-    out = F.interpolate(video, target_image_size, mode = 'nearest')
+    target_shape = (target_frames, target_image_size, target_image_size)
+
+    out = F.interpolate(video, target_shape, mode = 'nearest')
 
     if exists(clamp_range):
         out = out.clamp(*clamp_range)
-
-    out = rearrange(out, '(b f) c h w -> b c f h w', f = frames)
         
     return out
 
@@ -1600,7 +1600,7 @@ class Unet3D(nn.Module):
 
         batch_size, frames, device, dtype = x.shape[0], x.shape[2], x.device, x.dtype
 
-        assert ignore_time or divisible_by(frames, self.total_temporal_divisor), f'number of input frames must be divisible by {self.total_temporal_divisor}'
+        assert ignore_time or divisible_by(frames, self.total_temporal_divisor), f'number of input frames {frames} must be divisible by {self.total_temporal_divisor}'
 
         # add self conditioning if needed
 
