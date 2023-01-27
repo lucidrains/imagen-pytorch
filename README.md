@@ -559,6 +559,8 @@ imagen = ElucidatedImagen(
 
 This repository will also start accumulating new research around text guided video synthesis. For starters it will adopt the 3d unet architecture described by Jonathan Ho in <a href="https://arxiv.org/abs/2204.03458">Video Diffusion Models</a>
 
+Update: verified <a href="https://github.com/lucidrains/imagen-pytorch/issues/305#issuecomment-1407015141">working</a> by <a href="https://github.com/HReynaud">Hadrien Reynaud</a>!
+
 Ex.
 
 ```python
