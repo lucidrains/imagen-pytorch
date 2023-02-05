@@ -724,6 +724,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] make sure eventual dreambooth works with imagen-video
 - [ ] add framerate conditioning for video diffusion
+- [ ] make sure one can customize all interpolation modes (some researchers are finding better results with trilinear)
+- [ ] imagen-video : allow for conditioning on preceding (and possibly future) frames of videos. ignore time should not be allowed in that scenario
 
 ## Citations
 
