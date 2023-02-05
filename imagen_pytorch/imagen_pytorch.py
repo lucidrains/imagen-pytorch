@@ -144,14 +144,15 @@ def masked_mean(t, *, dim, mask = None):
 def resize_image_to(
     image,
     target_image_size,
-    clamp_range = None
+    clamp_range = None,
+    mode = 'nearest'
 ):
     orig_image_size = image.shape[-1]
 
     if orig_image_size == target_image_size:
         return image
 
-    out = F.interpolate(image, target_image_size, mode = 'nearest')
+    out = F.interpolate(image, target_image_size, mode = mode)
 
     if exists(clamp_range):
         out = out.clamp(*clamp_range)

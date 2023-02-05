@@ -138,7 +138,8 @@ def resize_video_to(
     video,
     target_image_size,
     target_frames = None,
-    clamp_range = None
+    clamp_range = None,
+    mode = 'nearest'
 ):
     orig_video_size = video.shape[-1]
 
@@ -150,7 +151,7 @@ def resize_video_to(
 
     target_shape = (target_frames, target_image_size, target_image_size)
 
-    out = F.interpolate(video, target_shape, mode = 'nearest')
+    out = F.interpolate(video, target_shape, mode = mode)
 
     if exists(clamp_range):
         out = out.clamp(*clamp_range)
@@ -1211,7 +1212,8 @@ class Unet3D(nn.Module):
         cosine_sim_attn = False,
         self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
-        pixel_shuffle_upsample = True        # may address checkboard artifacts
+        pixel_shuffle_upsample = True,       # may address checkboard artifacts
+        resize_mode = 'nearest'
     ):
         super().__init__()
 
@@ -1502,6 +1504,10 @@ class Unet3D(nn.Module):
 
         zero_init_(self.final_conv)
 
+        # resize mode
+
+        self.resize_mode = resize_mode
+
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
     def cast_model_parameters(
@@ -1621,8 +1627,12 @@ class Unet3D(nn.Module):
         assert not (self.has_cond_image ^ exists(cond_images)), 'you either requested to condition on an image on the unet, but the conditioning image is not supplied, or vice versa'
 
         if exists(cond_images):
+            assert cond_images.ndim == 4, 'conditioning images must have 4 dimensions only, if you want to condition on frames of video, use `cond_video_frames` instead'
             assert cond_images.shape[1] == self.cond_images_channels, 'the number of channels on the conditioning image you are passing in does not match what you specified on initialiation of the unet'
-            cond_images = resize_video_to(cond_images, x.shape[-1])
+
+            cond_images = repeat(cond_images, 'b c h w -> b c f h w', f = x.shape[2])
+            cond_images = resize_video_to(cond_images, x.shape[-1], mode = self.resize_mode)
+
             x = torch.cat((cond_images, x), dim = 1)
 
         # ignoring time in pseudo 3d resnet blocks

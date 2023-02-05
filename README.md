@@ -44,6 +44,8 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/TheFusion21">Kay</a> for contributing one line command training of Imagen!
 
+- <a href="https://github.com/HReynaud">Hadrien Reynaud</a> for testing out text-to-video on a medical dataset, sharing his results, and identifying issues!
+
 ## Install
 
 ```bash
