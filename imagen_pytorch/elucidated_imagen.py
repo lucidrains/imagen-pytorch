@@ -84,6 +84,7 @@ class ElucidatedImagen(nn.Module):
         channels = 3,
         cond_drop_prob = 0.1,
         random_crop_sizes = None,
+        resize_mode = 'nearest',
         temporal_downsample_factor = 1,
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
@@ -165,7 +166,9 @@ class ElucidatedImagen(nn.Module):
         self.is_video = is_video
 
         self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
+
         self.resize_to = resize_video_to if is_video else resize_image_to
+        self.resize_to = partial(self.resize_to, mode = resize_mode)
 
         # unet image sizes
 

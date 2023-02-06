@@ -1144,6 +1144,7 @@ class Unet(nn.Module):
         final_conv_kernel_size = 3,
         cosine_sim_attn = False,
         self_cond = False,
+        resize_mode = 'nearest',
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True,       # may address checkboard artifacts
     ):
@@ -1426,6 +1427,10 @@ class Unet(nn.Module):
 
         zero_init_(self.final_conv)
 
+        # resize mode
+
+        self.resize_mode = resize_mode
+
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
     def cast_model_parameters(
@@ -1541,7 +1546,7 @@ class Unet(nn.Module):
 
         if exists(cond_images):
             assert cond_images.shape[1] == self.cond_images_channels, 'the number of channels on the conditioning image you are passing in does not match what you specified on initialiation of the unet'
-            cond_images = resize_image_to(cond_images, x.shape[-1])
+            cond_images = resize_image_to(cond_images, x.shape[-1], mode = self.resize_mode)
             x = torch.cat((cond_images, x), dim = 1)
 
         # initial convolution
@@ -1794,7 +1799,8 @@ class Imagen(nn.Module):
         dynamic_thresholding = True,
         dynamic_thresholding_percentile = 0.95,     # unsure what this was based on perusal of paper
         only_train_unet_number = None,
-        temporal_downsample_factor = 1
+        temporal_downsample_factor = 1,
+        resize_mode = 'nearest'
     ):
         super().__init__()
 
@@ -1902,7 +1908,9 @@ class Imagen(nn.Module):
         self.is_video = is_video
 
         self.right_pad_dims_to_datatype = partial(rearrange, pattern = ('b -> b 1 1 1' if not is_video else 'b -> b 1 1 1 1'))
+
         self.resize_to = resize_video_to if is_video else resize_image_to
+        self.resize_to = partial(self.resize_to, mode = self.resize_mode)
 
         # temporal interpolation
 

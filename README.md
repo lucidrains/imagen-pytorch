@@ -702,6 +702,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] build out CLI tool for training, resuming training off config file
 - [x] allow for temporal interpolation at specific stages
 - [x] make sure temporal interpolation works with inpainting
+- [x] make sure one can customize all interpolation modes (some researchers are finding better results with trilinear)
 
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
@@ -724,7 +725,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] cleanup self conditioning to be extracted at imagen instantiation
 - [ ] make sure eventual dreambooth works with imagen-video
 - [ ] add framerate conditioning for video diffusion
-- [ ] make sure one can customize all interpolation modes (some researchers are finding better results with trilinear)
 - [ ] imagen-video : allow for conditioning on preceding (and possibly future) frames of videos. ignore time should not be allowed in that scenario
 
 ## Citations
