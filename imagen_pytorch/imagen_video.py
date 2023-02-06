@@ -143,13 +143,13 @@ def resize_video_to(
 ):
     orig_video_size = video.shape[-1]
 
-    if orig_video_size == target_image_size:
-        return video
-
     frames = video.shape[2]
     target_frames = default(target_frames, frames)
 
     target_shape = (target_frames, target_image_size, target_image_size)
+
+    if tuple(video.shape[-3:]) == target_shape:
+        return video
 
     out = F.interpolate(video, target_shape, mode = mode)
 
