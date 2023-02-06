@@ -142,11 +142,11 @@ def resize_video_to(
     mode = 'nearest'
 ):
     orig_video_size = video.shape[-1]
+    frames = video.shape[2]
 
-    if orig_video_size == target_image_size:
+    if orig_video_size == target_image_size and default(target_frames, frames) == frames:
         return video
 
-    frames = video.shape[2]
     target_frames = default(target_frames, frames)
 
     target_shape = (target_frames, target_image_size, target_image_size)
