@@ -2043,18 +2043,24 @@ class Imagen(nn.Module):
     ):
         assert not (cond_scale != 1. and not self.can_classifier_guidance), 'imagen was not trained with conditional dropout, and thus one cannot use classifier free guidance (cond_scale anything other than 1)'
 
+        video_kwargs = dict()
+        if self.is_video:
+            video_kwargs = dict(
+                cond_video_frames = cond_video_frames,
+                post_cond_video_frames = post_cond_video_frames,
+            )
+
         pred = default(model_output, lambda: unet.forward_with_cond_scale(
             x,
             noise_scheduler.get_condition(t),
             text_embeds = text_embeds,
             text_mask = text_mask,
             cond_images = cond_images,
-            cond_video_frames = cond_video_frames,
-            post_cond_video_frames = post_cond_video_frames,
             cond_scale = cond_scale,
             lowres_cond_img = lowres_cond_img,
             self_cond = self_cond,
-            lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times))
+            lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)),
+            **video_kwargs
         )
 
         if pred_objective == 'noise':
@@ -2107,6 +2113,13 @@ class Imagen(nn.Module):
     ):
         b, *_, device = *x.shape, x.device
 
+        video_kwargs = dict()
+        if self.is_video:
+            video_kwargs = dict(
+                cond_video_frames = cond_video_frames,
+                post_cond_video_frames = post_cond_video_frames,
+            )
+
         (model_mean, _, model_log_variance), x_start = self.p_mean_variance(
             unet,
             x = x,
@@ -2116,14 +2129,13 @@ class Imagen(nn.Module):
             text_embeds = text_embeds,
             text_mask = text_mask,
             cond_images = cond_images,
-            cond_video_frames = cond_video_frames,
-            post_cond_video_frames = post_cond_video_frames,
             cond_scale = cond_scale,
             lowres_cond_img = lowres_cond_img,
             self_cond = self_cond,
             lowres_noise_times = lowres_noise_times,
             pred_objective = pred_objective,
-            dynamic_threshold = dynamic_threshold
+            dynamic_threshold = dynamic_threshold,
+            **video_kwargs
         )
 
         noise = torch.randn_like(x)
@@ -2196,6 +2208,15 @@ class Imagen(nn.Module):
         skip_steps = default(skip_steps, 0)
         timesteps = timesteps[skip_steps:]
 
+        # video conditioning kwargs
+
+        video_kwargs = dict()
+        if self.is_video:
+            video_kwargs = dict(
+                cond_video_frames = cond_video_frames,
+                post_cond_video_frames = post_cond_video_frames,
+            )
+
         for times, times_next in tqdm(timesteps, desc = 'sampling loop time step', total = len(timesteps), disable = not use_tqdm):
             is_last_timestep = times_next == 0
 
@@ -2216,15 +2237,14 @@ class Imagen(nn.Module):
                     text_embeds = text_embeds,
                     text_mask = text_mask,
                     cond_images = cond_images,
-                    cond_video_frames = cond_video_frames,
-                    post_cond_video_frames = post_cond_video_frames,
                     cond_scale = cond_scale,
                     self_cond = self_cond,
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
                     noise_scheduler = noise_scheduler,
                     pred_objective = pred_objective,
-                    dynamic_threshold = dynamic_threshold
+                    dynamic_threshold = dynamic_threshold,
+                    **video_kwargs
                 )
 
                 if has_inpainting and not (is_last_resample_step or torch.all(is_last_timestep)):
@@ -2346,6 +2366,15 @@ class Imagen(nn.Module):
             prev_frame_size = all_frame_dims[start_at_unet_number - 2][0] if self.is_video else None
             img = self.resize_to(start_image_or_video, prev_image_size, **frames_to_resize_kwargs(prev_frame_size))
 
+        # video kwargs
+
+        video_kwargs = dict()
+        if self.is_video:
+            video_kwargs = dict(
+                cond_video_frames = cond_video_frames,
+                post_cond_video_frames = post_cond_video_frames,
+            )
+
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, frame_dims, noise_scheduler, pred_objective, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, all_frame_dims, self.noise_schedulers, self.pred_objectives, self.dynamic_thresholding, cond_scale, init_images, skip_steps), disable = not use_tqdm):
@@ -2382,8 +2411,6 @@ class Imagen(nn.Module):
                     text_embeds = text_embeds,
                     text_mask = text_masks,
                     cond_images = cond_images,
-                    cond_video_frames = cond_video_frames,
-                    post_cond_video_frames = post_cond_video_frames,
                     inpaint_images = inpaint_images,
                     inpaint_masks = inpaint_masks,
                     inpaint_resample_times = inpaint_resample_times,
@@ -2395,7 +2422,8 @@ class Imagen(nn.Module):
                     noise_scheduler = noise_scheduler,
                     pred_objective = pred_objective,
                     dynamic_threshold = dynamic_threshold,
-                    use_tqdm = use_tqdm
+                    use_tqdm = use_tqdm,
+                    **video_kwargs
                 )
 
                 outputs.append(img)

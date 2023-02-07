@@ -634,6 +634,15 @@ class ElucidatedImagen(nn.Module):
             prev_image_size = self.image_sizes[start_at_unet_number - 2]
             img = self.resize_to(start_image_or_video, prev_image_size)
 
+        # video kwargs
+
+        video_kwargs = dict()
+        if self.is_video:
+            video_kwargs = dict(
+                cond_video_frames = cond_video_frames,
+                post_cond_video_frames = post_cond_video_frames,
+            )
+
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, frame_dims, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, all_frame_dims, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
@@ -673,8 +682,6 @@ class ElucidatedImagen(nn.Module):
                     text_embeds = text_embeds,
                     text_mask = text_masks,
                     cond_images = cond_images,
-                    cond_video_frames = cond_video_frames,
-                    post_cond_video_frames = post_cond_video_frames,
                     inpaint_images = inpaint_images,
                     inpaint_masks = inpaint_masks,
                     inpaint_resample_times = inpaint_resample_times,
@@ -686,7 +693,8 @@ class ElucidatedImagen(nn.Module):
                     lowres_cond_img = lowres_cond_img,
                     lowres_noise_times = lowres_noise_times,
                     dynamic_threshold = dynamic_threshold,
-                    use_tqdm = use_tqdm
+                    use_tqdm = use_tqdm,
+                    **video_kwargs
                 )
 
                 outputs.append(img)
