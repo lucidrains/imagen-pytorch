@@ -1599,6 +1599,7 @@ class Unet3D(nn.Module):
         text_mask = None,
         cond_images = None,
         cond_video_frames = None,
+        post_cond_video_frames = None,
         self_cond = None,
         cond_drop_prob = 0.,
         ignore_time = False
@@ -1627,8 +1628,11 @@ class Unet3D(nn.Module):
                 lowres_cond_img = torch.cat((cond_video_frames, lowres_cond_img), dim = 2)
                 cond_video_frames = torch.cat((cond_video_frames, cond_video_frames), dim = 1)
 
+            if exists(post_cond_video_frames):
+                lowres_cond_img = torch.cat((lowres_cond_img, post_cond_video_frames), dim = 2)
+                post_cond_video_frames = torch.cat((post_cond_video_frames, post_cond_video_frames), dim = 1)
+
         # conditioning on video frames as a prompt
-        # todo - add post_cond_video_frames as well
 
         num_preceding_frames = 0
         if exists(cond_video_frames):
@@ -1640,6 +1644,19 @@ class Unet3D(nn.Module):
             x = torch.cat((cond_video_frames, x), dim = 2)
 
             num_preceding_frames = cond_video_frames_len
+
+        # conditioning on video frames as a prompt
+
+        num_succeeding_frames = 0
+        if exists(post_cond_video_frames):
+            cond_video_frames_len = post_cond_video_frames.shape[2]
+
+            assert divisible_by(cond_video_frames_len, self.total_temporal_divisor)
+
+            post_cond_video_frames = resize_video_to(post_cond_video_frames, x.shape[-1])
+            x = torch.cat((post_cond_video_frames, x), dim = 2)
+
+            num_succeeding_frames = cond_video_frames_len
 
         # condition on input image
 
@@ -1852,5 +1869,8 @@ class Unet3D(nn.Module):
 
         if num_preceding_frames > 0:
             out = out[:, :, num_preceding_frames:]
+
+        if num_succeeding_frames > 0:
+            out = out[:, :, -num_succeeding_frames:]
 
         return out
