@@ -207,7 +207,7 @@ class ElucidatedImagen(nn.Module):
         self.temporal_downsample_factor = temporal_downsample_factor
 
         assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
-        assert all([left >= right for left, right in zip((1, *temporal_downsample_factor[:-1]), temporal_downsample_factor[1:])]), 'temporal downssample factor must be in order of descending'
+        assert tuple(sorted(temporal_downsample_factor, reverse = True)) == temporal_downsample_factor, 'temporal downsample factor must be in order of descending'
 
         # elucidating parameters
 
