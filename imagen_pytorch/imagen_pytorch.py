@@ -1917,7 +1917,7 @@ class Imagen(nn.Module):
         temporal_downsample_factor = cast_tuple(temporal_downsample_factor, num_unets)
         self.temporal_downsample_factor = temporal_downsample_factor
         assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
-        assert all([left >= right for left, right in zip((1, *temporal_downsample_factor[:-1]), temporal_downsample_factor[1:])]), 'temporal downssample factor must be in order of descending'
+        assert all([left >= right for left, right in zip(temporal_downsample_factor[:-1], temporal_downsample_factor[1:])]), 'temporal downssample factor must be in order of descending'
 
         # cascading ddpm related stuff
 
