@@ -1917,7 +1917,7 @@ class Imagen(nn.Module):
         temporal_downsample_factor = cast_tuple(temporal_downsample_factor, num_unets)
         self.temporal_downsample_factor = temporal_downsample_factor
         assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
-        assert all([left >= right for left, right in zip(temporal_downsample_factor[:-1], temporal_downsample_factor[1:])]), 'temporal downssample factor must be in order of descending'
+        assert tuple(sorted(temporal_downsample_factor, reverse = True)) == temporal_downsample_factor, 'temporal downsample factor must be in order of descending'
 
         # cascading ddpm related stuff
 
@@ -2059,9 +2059,9 @@ class Imagen(nn.Module):
             cond_scale = cond_scale,
             lowres_cond_img = lowres_cond_img,
             self_cond = self_cond,
-            lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times)),
+            lowres_noise_times = self.lowres_noise_schedule.get_condition(lowres_noise_times),
             **video_kwargs
-        )
+        ))
 
         if pred_objective == 'noise':
             x_start = noise_scheduler.predict_start_from_noise(x, t = t, noise = pred)
