@@ -817,14 +817,17 @@ class ElucidatedImagen(nn.Module):
 
             if is_video:
                 images, lowres_cond_img = rearrange_many((images, lowres_cond_img), 'b c f h w -> (b f) c h w')
+                cond_images = rearrange(cond_images, 'b c f h w -> (b f) c h w') if exists(cond_images) else None
 
             # make sure low res conditioner and image both get augmented the same way
             # detailed https://kornia.readthedocs.io/en/latest/augmentation.module.html?highlight=randomcrop#kornia.augmentation.RandomCrop
             images = aug(images)
             lowres_cond_img = aug(lowres_cond_img, params = aug._params)
+            cond_images = aug(cond_images, params = aug._params) if exists(cond_images) else None
 
             if is_video:
                 images, lowres_cond_img = rearrange_many((images, lowres_cond_img), '(b f) c h w -> b c f h w', f = frames)
+                cond_images = rearrange(cond_images, '(b f) c h w -> b c f h w', f = frames) if exists(cond_images) else None
 
         # noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3
