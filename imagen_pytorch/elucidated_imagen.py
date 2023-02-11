@@ -39,11 +39,14 @@ from imagen_pytorch.imagen_pytorch import (
     module_device,
     normalize_neg_one_to_one,
     unnormalize_zero_to_one,
+    compact,
+    maybe_transform_dict_key
 )
 
 from imagen_pytorch.imagen_video import (
     Unet3D,
-    resize_video_to
+    resize_video_to,
+    scale_video_time
 )
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
@@ -86,6 +89,7 @@ class ElucidatedImagen(nn.Module):
         random_crop_sizes = None,
         resize_mode = 'nearest',
         temporal_downsample_factor = 1,
+        resize_cond_video_frames = True,
         lowres_sample_noise_level = 0.2,            # in the paper, they present a new trick where they noise the lowres conditioning image, and at sample time, fix it to a certain level (0.1 or 0.3) - the unets are also made to be conditioned on this noise level
         per_sample_random_aug_noise_level = False,  # unclear when conditioning on augmentation noise level, whether each batch element receives a random aug noise value - turning off due to @marunine's find
         condition_on_text = True,
@@ -205,6 +209,9 @@ class ElucidatedImagen(nn.Module):
 
         temporal_downsample_factor = cast_tuple(temporal_downsample_factor, num_unets)
         self.temporal_downsample_factor = temporal_downsample_factor
+
+        self.resize_cond_video_frames = resize_cond_video_frames
+        self.temporal_downsample_divisor = temporal_downsample_factor[0]
 
         assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
         assert tuple(sorted(temporal_downsample_factor, reverse = True)) == temporal_downsample_factor, 'temporal downsample factor must be in order of descending'
@@ -634,15 +641,6 @@ class ElucidatedImagen(nn.Module):
             prev_image_size = self.image_sizes[start_at_unet_number - 2]
             img = self.resize_to(start_image_or_video, prev_image_size)
 
-        # video kwargs
-
-        video_kwargs = dict()
-        if self.is_video:
-            video_kwargs = dict(
-                cond_video_frames = cond_video_frames,
-                post_cond_video_frames = post_cond_video_frames,
-            )
-
         # go through each unet in cascade
 
         for unet_number, unet, channel, image_size, frame_dims, unet_hparam, dynamic_threshold, unet_cond_scale, unet_init_images, unet_skip_steps, unet_sigma_min, unet_sigma_max in tqdm(zip(range(1, num_unets + 1), self.unets, self.sample_channels, self.image_sizes, all_frame_dims, self.hparams, self.dynamic_thresholding, cond_scale, init_images, skip_steps, sigma_min, sigma_max), disable = not use_tqdm):
@@ -659,8 +657,27 @@ class ElucidatedImagen(nn.Module):
                 shape = (batch_size, channel, *frame_dims, image_size, image_size)
 
                 resize_kwargs = dict()
+                video_kwargs = dict()
+
                 if self.is_video:
                     resize_kwargs = dict(target_frames = frame_dims[0])
+
+                    video_kwargs = dict(
+                        cond_video_frames = cond_video_frames,
+                        post_cond_video_frames = post_cond_video_frames
+                    )
+
+                    video_kwargs = compact(video_kwargs)
+
+                # handle video conditioning frames
+
+                if self.is_video and self.resize_cond_video_frames:
+                    downsample_scale = self.temporal_downsample_factor[unet_number - 1]
+                    temporal_downsample_fn = partial(scale_video_time, downsample_scale = downsample_scale)
+                    video_kwargs = maybe_transform_dict_key(video_kwargs, 'cond_video_frames', temporal_downsample_fn)
+                    video_kwargs = maybe_transform_dict_key(video_kwargs, 'post_cond_video_frames', temporal_downsample_fn)
+
+                # low resolution conditioning
 
                 if unet.lowres_cond:
                     lowres_noise_times = self.lowres_noise_schedule.get_times(batch_size, lowres_sample_noise_level, device = device)
@@ -790,6 +807,16 @@ class ElucidatedImagen(nn.Module):
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
 
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
+
+        # handle video conditioning frames
+
+        if self.is_video and self.resize_cond_video_frames:
+            downsample_scale = self.temporal_downsample_factor[unet_index]
+            temporal_downsample_fn = partial(scale_video_time, downsample_scale = downsample_scale)
+            kwargs = maybe_transform_dict_key(kwargs, 'cond_video_frames', temporal_downsample_fn)
+            kwargs = maybe_transform_dict_key(kwargs, 'post_cond_video_frames', temporal_downsample_fn)
+
+        # low resolution conditioning
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):

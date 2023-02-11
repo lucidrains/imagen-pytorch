@@ -158,6 +158,28 @@ def resize_video_to(
         
     return out
 
+def scale_video_time(
+    video,
+    downsample_scale = 1,
+    mode = 'nearest'
+):
+    if downsample_scale == 1:
+        return video
+
+    image_size, frames = video.shape[-1], video.shape[-3]
+    assert divisible_by(frames, downsample_scale), f'trying to temporally downsample a conditioning video frames of length {frames} by {downsample_scale}, however it is not neatly divisible'
+
+    target_frames = frames // downsample_scale
+
+    resized_video = resize_video_to(
+        video,
+        image_size,
+        target_frames = target_frames,
+        mode = mode
+    )
+
+    return resized_video
+
 # classifier free guidance functions
 
 def prob_mask_like(shape, prob, device):
@@ -1871,6 +1893,6 @@ class Unet3D(nn.Module):
             out = out[:, :, num_preceding_frames:]
 
         if num_succeeding_frames > 0:
-            out = out[:, :, -num_succeeding_frames:]
+            out = out[:, :, :-num_succeeding_frames]
 
         return out

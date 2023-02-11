@@ -25,7 +25,7 @@ from einops_exts import rearrange_many, repeat_many, check_shape
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
-from imagen_pytorch.imagen_video import Unet3D, resize_video_to
+from imagen_pytorch.imagen_video import Unet3D, resize_video_to, scale_video_time
 
 # helper functions
 
@@ -79,6 +79,17 @@ def cast_tuple(val, length = None):
         assert len(output) == length
 
     return output
+
+def compact(input_dict):
+    return {key: value for key, value in input_dict.items() if exists(value)}
+
+def maybe_transform_dict_key(input_dict, key, fn):
+    if key not in input_dict:
+        return input_dict
+
+    copied_dict = input_dict.copy()
+    copied_dict[key] = fn(copied_dict[key])
+    return copied_dict
 
 def cast_uint8_images_to_float(images):
     if not images.dtype == torch.uint8:
@@ -1800,6 +1811,7 @@ class Imagen(nn.Module):
         dynamic_thresholding_percentile = 0.95,     # unsure what this was based on perusal of paper
         only_train_unet_number = None,
         temporal_downsample_factor = 1,
+        resize_cond_video_frames = True,
         resize_mode = 'nearest'
     ):
         super().__init__()
@@ -1916,6 +1928,10 @@ class Imagen(nn.Module):
 
         temporal_downsample_factor = cast_tuple(temporal_downsample_factor, num_unets)
         self.temporal_downsample_factor = temporal_downsample_factor
+
+        self.resize_cond_video_frames = resize_cond_video_frames
+        self.temporal_downsample_divisor = temporal_downsample_factor[0]
+
         assert temporal_downsample_factor[-1] == 1, 'downsample factor of last stage must be 1'
         assert tuple(sorted(temporal_downsample_factor, reverse = True)) == temporal_downsample_factor, 'temporal downsample factor must be in order of descending'
 
@@ -2366,14 +2382,6 @@ class Imagen(nn.Module):
             prev_frame_size = all_frame_dims[start_at_unet_number - 2][0] if self.is_video else None
             img = self.resize_to(start_image_or_video, prev_image_size, **frames_to_resize_kwargs(prev_frame_size))
 
-        # video kwargs
-
-        video_kwargs = dict()
-        if self.is_video:
-            video_kwargs = dict(
-                cond_video_frames = cond_video_frames,
-                post_cond_video_frames = post_cond_video_frames,
-            )
 
         # go through each unet in cascade
 
@@ -2387,6 +2395,26 @@ class Imagen(nn.Module):
             context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
 
             with context:
+                # video kwargs
+
+                video_kwargs = dict()
+                if self.is_video:
+                    video_kwargs = dict(
+                        cond_video_frames = cond_video_frames,
+                        post_cond_video_frames = post_cond_video_frames,
+                    )
+
+                    video_kwargs = compact(video_kwargs)
+
+                if self.is_video and self.resize_cond_video_frames:
+                    downsample_scale = self.temporal_downsample_factor[unet_number - 1]
+                    temporal_downsample_fn = partial(scale_video_time, downsample_scale = downsample_scale)
+
+                    video_kwargs = maybe_transform_dict_key(video_kwargs, 'cond_video_frames', temporal_downsample_fn)
+                    video_kwargs = maybe_transform_dict_key(video_kwargs, 'post_cond_video_frames', temporal_downsample_fn)
+
+                # low resolution conditioning
+
                 lowres_cond_img = lowres_noise_times = None
                 shape = (batch_size, channel, *frame_dims, image_size, image_size)
 
@@ -2400,8 +2428,12 @@ class Imagen(nn.Module):
                     lowres_cond_img = self.normalize_img(lowres_cond_img)
                     lowres_cond_img, *_ = self.lowres_noise_schedule.q_sample(x_start = lowres_cond_img, t = lowres_noise_times, noise = torch.randn_like(lowres_cond_img))
 
+                # init images or video
+
                 if exists(unet_init_images):
                     unet_init_images = self.resize_to(unet_init_images, image_size, **resize_kwargs)
+
+                # shape of stage
 
                 shape = (batch_size, self.channels, *frame_dims, image_size, image_size)
 
@@ -2645,6 +2677,16 @@ class Imagen(nn.Module):
         assert not (not self.condition_on_text and exists(text_embeds)), 'decoder specified not to be conditioned on text, yet it is presented'
 
         assert not (exists(text_embeds) and text_embeds.shape[-1] != self.text_embed_dim), f'invalid text embedding dimension being passed in (should be {self.text_embed_dim})'
+
+        # handle video frame conditioning
+
+        if self.is_video and self.resize_cond_video_frames:
+            downsample_scale = self.temporal_downsample_factor[unet_index]
+            temporal_downsample_fn = partial(scale_video_time, downsample_scale = downsample_scale)
+            kwargs = maybe_transform_dict_key(kwargs, 'cond_video_frames', temporal_downsample_fn)
+            kwargs = maybe_transform_dict_key(kwargs, 'post_cond_video_frames', temporal_downsample_fn)
+
+        # handle low resolution conditioning
 
         lowres_cond_img = lowres_aug_times = None
         if exists(prev_image_size):
