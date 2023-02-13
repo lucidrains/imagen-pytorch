@@ -888,3 +888,12 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     volume  = {abs/2210.02303}
 }
 ```
+
+```bibtex
+@misc{gilmer2023intriguing
+    title  = {Intriguing Properties of Transformer Training Instabilities},
+    author = {Justin Gilmer, Andrea Schioppa, and Jeremy Cohen},
+    year   = {2023},
+    status = {to be published - one attention stabilization technique is circulating within Google Brain, being used by multiple teams}
+}
+```
