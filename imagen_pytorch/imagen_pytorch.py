@@ -2481,6 +2481,7 @@ class Imagen(nn.Module):
             if is_video:
                 frames = x_start.shape[2]
                 x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), 'b c f h w -> (b f) c h w')
+                cond_images = rearrange(cond_images, 'b c f h w -> (b f) c h w') if exists(cond_images) else None
 
             aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
 
@@ -2489,9 +2490,12 @@ class Imagen(nn.Module):
             x_start = aug(x_start)
             lowres_cond_img = aug(lowres_cond_img, params = aug._params)
             noise = aug(noise, params = aug._params)
+            cond_images = aug(cond_images, params = aug._params) if exists(cond_images) else None
+
 
             if is_video:
                 x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), '(b f) c h w -> b c f h w', f = frames)
+                cond_images = rearrange(cond_images, '(b f) c h w -> b c f h w', f = frames) if exists(cond_images) else None
 
         # get x_t
 

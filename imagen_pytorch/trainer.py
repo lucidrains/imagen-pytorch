@@ -20,6 +20,7 @@ import pytorch_warmup as warmup
 from imagen_pytorch.imagen_pytorch import Imagen, NullUnet
 from imagen_pytorch.elucidated_imagen import ElucidatedImagen
 from imagen_pytorch.data import cycle
+from imagen_pytorch.distiller import ImagenDistillation
 
 from imagen_pytorch.version import __version__
 from packaging import version
@@ -267,12 +268,13 @@ class ImagenTrainer(nn.Module):
             fs_kwargs = default(fs_kwargs, {})
             self.fs, _ = url_to_fs(default(checkpoint_path, './'), **fs_kwargs)
 
-        assert isinstance(imagen, (Imagen, ElucidatedImagen))
+        assert isinstance(imagen, (Imagen, ElucidatedImagen, ImagenDistillation))
         ema_kwargs, kwargs = groupby_prefix_and_trim('ema_', kwargs)
 
         # elucidated or not
 
         self.is_elucidated = isinstance(imagen, ElucidatedImagen)
+        self.is_distillation = isinstance(imagen, ImagenDistillation)
 
         # create accelerator instance
 
