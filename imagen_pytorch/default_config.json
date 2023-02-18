@@ -1,0 +1,50 @@
+{
+    "type": "original",
+    "imagen": {
+        "video": false,
+        "timesteps": [1024, 512, 512],
+        "image_sizes": [64, 256, 1024],
+        "random_crop_sizes": [null, 64, 256],
+        "condition_on_text": true,
+        "cond_drop_prob": 0.1,
+        "text_encoder_name": "google/t5-v1_1-large",
+        "unets": [
+            {
+                "dim": 512,
+                "dim_mults": [1, 2, 3, 4],
+                "num_resnet_blocks": 3,
+                "layer_attns": [false, true, true, true],
+                "layer_cross_attns": [false, true, true, true],
+                "attn_heads": 8
+            },
+            {
+                "dim": 128,
+                "dim_mults": [1, 2, 4, 8],
+                "num_resnet_blocks": [2, 4, 8, 8],
+                "layer_attns": [false, false, false, true],
+                "layer_cross_attns": [false, false, false, true],
+                "attn_heads": 8
+            },
+            {
+                "dim": 128,
+                "dim_mults": [1, 2, 4, 8],
+                "num_resnet_blocks": [2, 4, 8, 8],
+                "layer_attns": false,
+                "layer_cross_attns": [false, false, false, true],
+                "attn_heads": 8
+            }
+        ]
+    },
+    "trainer": {
+        "lr": 1e-4
+    },
+    "dataset_name": "laion/laion2B-en",
+    "dataset": {
+        "batch_size": 2048,
+        "shuffle": true
+    },
+    "image_label": null,
+    "url_label": "URL",
+    "text_label": "TEXT",
+    "checkpoint_path": "./imagen.pt"
+}

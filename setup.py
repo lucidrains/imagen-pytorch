@@ -27,12 +27,15 @@ setup(
   ],
   install_requires=[
     'accelerate',
+    'beartype',
     'click',
-    'einops>=0.4',
+    'datasets',
+    'einops>=0.6',
     'einops-exts',
     'ema-pytorch>=0.0.3',
     'fsspec',
     'kornia',
+    'lion-pytorch',
     'numpy',
     'packaging',
     'pillow',
@@ -43,6 +46,7 @@ setup(
     'torch>=1.6',
     'torchvision',
     'transformers',
+    'triton',
     'tqdm'
   ],
   classifiers=[
