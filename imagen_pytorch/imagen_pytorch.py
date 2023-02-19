@@ -2467,7 +2467,10 @@ class Imagen(nn.Module):
     ):
         is_video = x_start.ndim == 5
 
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        if noise is None:
+            noise = default(noise, lambda: torch.randn_like(x_start))
+        elif noise[0] == "part_det":
+            noise = torch.randn_like(x_start) + 0.1 * torch.randn(x_start.shape[0], x_start.shape[1], 1, 1, 1).to(x_start)
 
         # normalize to [-1, 1]
 
@@ -2481,7 +2484,7 @@ class Imagen(nn.Module):
             if is_video:
                 frames = x_start.shape[2]
                 x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), 'b c f h w -> (b f) c h w')
-                cond_images = rearrange(cond_images, 'b c f h w -> (b f) c h w') if exists(cond_images) else None
+                # cond_images = rearrange(cond_images, 'b c h w -> (b f) c h w') if exists(cond_images) else None
 
             aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
 
@@ -2495,7 +2498,7 @@ class Imagen(nn.Module):
 
             if is_video:
                 x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), '(b f) c h w -> b c f h w', f = frames)
-                cond_images = rearrange(cond_images, '(b f) c h w -> b c f h w', f = frames) if exists(cond_images) else None
+                # cond_images = rearrange(cond_images, '(b f) c h w -> b c f h w', f = frames) if exists(cond_images) else None
 
         # get x_t
 

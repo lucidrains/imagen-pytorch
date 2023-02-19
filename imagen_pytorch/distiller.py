@@ -826,44 +826,6 @@ class ImagenDistillation(nn.Module):
         pil_images = list(map(lambda img: list(map(T.ToPILImage(), img.unbind(dim = 0))), outputs))
 
         return pil_images[output_index] # now you have a bunch of pillow images you can just .save(/where/ever/you/want.png)
-
-    # def distillation_step(
-    #     self,
-    #     teacher_unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
-    #     student_unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel],
-    #     x_start,
-    #     times,
-    #     noise_scheduler,
-    #     unet_kwargs,
-    #     noise,
-    # ):  
-    #     with torch.no_grad():
-    #         t = times
-    #         t_p = times - 0.5/noise_scheduler.num_timesteps # 1 step back in teacher schedule = half step back in student schedule
-    #         t_pp = times - 1/noise_scheduler.num_timesteps # 2 steps back in teacher schedule = 1 step back in student schedule
-
-    #         # get z_t, alpha_t, sigma_t
-    #         z_t, log_snr, alpha_t, sigma_t = noise_scheduler.q_sample(x_start = x_start, t = times, noise = noise)
-            
-    #         # get alpha_t_p, sigma_t_p, alpha_t_pp, sigma_t_pp
-    #         alpha_t_p, sigma_t_p = noise_scheduler.get_alpha_sigma(x_start = x_start, t = t_p, noise = noise)
-    #         alpha_t_pp, sigma_t_pp = noise_scheduler.get_alpha_sigma(x_start = x_start, t = t_pp, noise = noise)
-
-    #         # get x_hat_z_t
-    #         noise_cond = noise_scheduler.get_condition(t)
-    #         x_hat_z_t = teacher_unet.forward(z_t, noise_cond, **unet_kwargs)  
-    #         z_t_p = alpha_t_p * x_hat_z_t + (sigma_t_p/sigma_t) * (z_t - alpha_t * x_hat_z_t)    
-
-    #         # get x_hat_z_t_p
-    #         noise_cond = noise_scheduler.get_condition(t_p)
-    #         x_hat_z_t_p = teacher_unet.forward(z_t_p, noise_cond, **unet_kwargs)
-    #         z_t_pp = alpha_t_pp * x_hat_z_t_p + (sigma_t_pp/sigma_t_p) * (z_t_p - alpha_t_p * x_hat_z_t_p)
-
-    #         # prediction objective, target is x_tilde in the paper
-    #         target = (z_t_pp - (sigma_t_pp/sigma_t)*z_t) / (alpha_t_pp - (sigma_t_pp/sigma_t)*alpha_t)
-    #         target = target.detach()
-
-    #     return z_t, log_snr, target
     
     def distillation(
         self,
@@ -896,6 +858,7 @@ class ImagenDistillation(nn.Module):
             elif pred_objective == 'x_start':
                 x_hat_z_t = x_hat_z_t
             elif pred_objective == 'v':
+                # x_hat_z_t = alpha_t * z_t - sigma_t * x_hat_z_t
                 x_hat_z_t = noise_scheduler.predict_start_from_v(z_t, t, x_hat_z_t).clip(-1, 1)
 
             z_t_p = alpha_t_p * x_hat_z_t + (sigma_t_p/sigma_t) * (z_t - alpha_t * x_hat_z_t)    
@@ -904,18 +867,19 @@ class ImagenDistillation(nn.Module):
             noise_cond = noise_scheduler.get_condition(t_p)
             x_hat_z_t_p = teacher_unet.forward(z_t_p, noise_cond, **unet_kwargs)
             if pred_objective == 'noise':
-                x_hat_z_t_p = noise_scheduler.predict_start_from_noise(z_t, t, x_hat_z_t_p).clip(-1, 1)
+                x_hat_z_t_p = noise_scheduler.predict_start_from_noise(z_t_p, t_p, x_hat_z_t_p).clip(-1, 1)
             elif pred_objective == 'x_start':
                 x_hat_z_t_p = x_hat_z_t_p
             elif pred_objective == 'v':
-                x_hat_z_t_p = noise_scheduler.predict_start_from_v(z_t, t, x_hat_z_t_p).clip(-1, 1)
+                # x_hat_z_t_p = alpha_t_p * z_t_p - sigma_t_p * x_hat_z_t_p
+                x_hat_z_t_p = noise_scheduler.predict_start_from_v(z_t_p, t_p, x_hat_z_t_p).clip(-1, 1)
             
             z_t_pp = alpha_t_pp * x_hat_z_t_p + (sigma_t_pp/sigma_t_p) * (z_t_p - alpha_t_p * x_hat_z_t_p)
 
             # prediction objective, target is x_tilde in the paper
             target = (z_t_pp - (sigma_t_pp/sigma_t)*z_t) / (alpha_t_pp - (sigma_t_pp/sigma_t)*alpha_t)
             if pred_objective == 'noise':
-                target = 0
+                raise NotImplementedError('distillation with noise prediction objective is not implemented yet')
             elif pred_objective == 'x_start':
                 target = target
             elif pred_objective == 'v':
@@ -924,6 +888,7 @@ class ImagenDistillation(nn.Module):
             target = target.detach()
 
         return z_t, log_snr, target
+    
     @beartype
     def p_losses(
         self,
@@ -1052,8 +1017,8 @@ class ImagenDistillation(nn.Module):
         del kwargs['unet']
         # teacher_unet = default(teacher_unet, lambda: self.get_unet(unet_number, teacher = True))
         # student_unet = default(student_unet, lambda: self.get_unet(unet_number))
-        teacher_unet = self.teacher_unets[unet_index]
-        student_unet = self.student_unets[unet_index]
+        teacher_unet = self.teacher_unets[unet_index].eval()
+        student_unet = self.student_unets[unet_index].train()
 
 
         assert not isinstance(student_unet, NullUnet), 'null unet cannot and should not be trained'
@@ -1116,6 +1081,7 @@ class ImagenDistillation(nn.Module):
 
     def copy_student_to_teacher(self):
         self.teacher_unets = copy.deepcopy(self.student_unets)
+        self.teacher_unets = [unet.eval() for unet in self.teacher_unets]
     
     def next_distillation_step(self):
         
