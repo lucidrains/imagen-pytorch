@@ -750,6 +750,7 @@ class ElucidatedImagen(nn.Module):
         text_masks = None,
         unet_number = None,
         cond_images = None,
+        temporal_loss_w = None,
         **kwargs
     ):
         if self.is_video and images.ndim == 4:
@@ -921,6 +922,13 @@ class ElucidatedImagen(nn.Module):
         # loss weighting
 
         losses = losses * self.loss_weight(hp.sigma_data, sigmas)
+
+        # temporal loss
+
+        if temporal_loss_w and not ignore_time:
+            temporal_difference = (denoised_images[:, :, 1:] - denoised_images[:, :, :-1]).abs().mean() # MAE loss
+            temporal_loss = F.mse_loss(temporal_difference, torch.zeros_like(temporal_difference))
+            losses = losses + temporal_loss * temporal_loss_w
 
         # return average loss
 

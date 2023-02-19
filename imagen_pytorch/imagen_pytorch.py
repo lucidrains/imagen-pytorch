@@ -2495,10 +2495,11 @@ class Imagen(nn.Module):
         **kwargs
     ):
         is_video = x_start.ndim == 5
+        temporal_loss_w = kwargs.pop('temporal_loss_w') if 'temporal_loss_w' in kwargs else 0.
 
         if noise is None:
             noise = default(noise, lambda: torch.randn_like(x_start))
-        elif noise[0] == "part_det":
+        elif noise[0] == "part_det": # partially deterministic noise
             noise = torch.randn_like(x_start) + 0.1 * torch.randn(x_start.shape[0], x_start.shape[1], 1, 1, 1).to(x_start)
 
         # normalize to [-1, 1]
@@ -2608,6 +2609,11 @@ class Imagen(nn.Module):
         if p2_loss_weight_gamma > 0:
             loss_weight = (self.p2_loss_weight_k + log_snr.exp()) ** -p2_loss_weight_gamma
             losses = losses * loss_weight
+        
+        if temporal_loss_w > 0. and not kwargs.get('ignore_time', False):
+            temporal_difference = (pred[:, :, 1:] - pred[:, :, :-1]).abs().mean() # MAE loss
+            temporal_loss = F.l1_loss(temporal_difference, torch.zeros_like(temporal_difference))
+            losses = losses + temporal_loss * temporal_loss_w
 
         return losses.mean()
 
