@@ -35,6 +35,7 @@ setup(
     'ema-pytorch>=0.0.3',
     'fsspec',
     'kornia',
+    'lion-pytorch',
     'numpy',
     'packaging',
     'pillow',
@@ -45,6 +46,7 @@ setup(
     'torch>=1.6',
     'torchvision',
     'transformers',
+    'triton',
     'tqdm'
   ],
   classifiers=[
