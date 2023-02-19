@@ -1110,6 +1110,7 @@ class Unet(nn.Module):
         self,
         *,
         dim,
+        image_embed_dim = 1024,
         text_embed_dim = get_encoded_dim(DEFAULT_T5_NAME),
         num_resnet_blocks = 1,
         cond_dim = None,
