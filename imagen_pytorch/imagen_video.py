@@ -255,10 +255,12 @@ class PerceiverAttention(nn.Module):
         dim,
         dim_head = 64,
         heads = 8,
-        scale = 8
+        cosine_sim_attn = False
     ):
         super().__init__()
-        self.scale = scale
+        self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1
+        self.cosine_sim_attn = cosine_sim_attn
+        self.cosine_sim_scale = 16 if cosine_sim_attn else 1
 
         self.heads = heads
         inner_dim = dim_head * heads
@@ -268,9 +270,6 @@ class PerceiverAttention(nn.Module):
 
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, inner_dim * 2, bias = False)
-
-        self.q_scale = nn.Parameter(torch.ones(dim_head))
-        self.k_scale = nn.Parameter(torch.ones(dim_head))
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim, bias = False),
@@ -291,15 +290,16 @@ class PerceiverAttention(nn.Module):
 
         q, k, v = rearrange_many((q, k, v), 'b n (h d) -> b h n d', h = h)
 
-        # qk rmsnorm
+        q = q * self.scale
 
-        q, k = map(l2norm, (q, k))
-        q = q * self.q_scale
-        k = k * self.k_scale
+        # cosine sim attention
+
+        if self.cosine_sim_attn:
+            q, k = map(l2norm, (q, k))
 
         # similarities and masking
 
-        sim = einsum('... i d, ... j d  -> ... i j', q, k) * self.scale
+        sim = einsum('... i d, ... j d  -> ... i j', q, k) * self.cosine_sim_scale
 
         if exists(mask):
             max_neg_value = -torch.finfo(sim.dtype).max
@@ -326,7 +326,8 @@ class PerceiverResampler(nn.Module):
         num_latents = 64,
         num_latents_mean_pooled = 4, # number of latents derived from mean pooled representation of the sequence
         max_seq_len = 512,
-        ff_mult = 4
+        ff_mult = 4,
+        cosine_sim_attn = False
     ):
         super().__init__()
         self.pos_emb = nn.Embedding(max_seq_len, dim)
@@ -345,7 +346,7 @@ class PerceiverResampler(nn.Module):
         self.layers = nn.ModuleList([])
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PerceiverAttention(dim = dim, dim_head = dim_head, heads = heads),
+                PerceiverAttention(dim = dim, dim_head = dim_head, heads = heads, cosine_sim_attn = cosine_sim_attn),
                 FeedForward(dim = dim, mult = ff_mult)
             ]))
 
@@ -438,14 +439,17 @@ class Attention(nn.Module):
         heads = 8,
         causal = False,
         context_dim = None,
+        cosine_sim_attn = False,
         rel_pos_bias = False,
         rel_pos_bias_mlp_depth = 2,
-        init_zero = False,
-        scale = 8
+        init_zero = False
     ):
         super().__init__()
-        self.scale = scale
+        self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
         self.causal = causal
+
+        self.cosine_sim_attn = cosine_sim_attn
+        self.cosine_sim_scale = 16 if cosine_sim_attn else 1
 
         self.rel_pos_bias = DynamicPositionBias(dim = dim, heads = heads, depth = rel_pos_bias_mlp_depth) if rel_pos_bias else None
 
@@ -459,9 +463,6 @@ class Attention(nn.Module):
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(dim, dim_head * 2, bias = False)
-
-        self.q_scale = nn.Parameter(torch.ones(dim_head))
-        self.k_scale = nn.Parameter(torch.ones(dim_head))
 
         self.to_context = nn.Sequential(nn.LayerNorm(context_dim), nn.Linear(context_dim, dim_head * 2)) if exists(context_dim) else None
 
@@ -486,6 +487,7 @@ class Attention(nn.Module):
         q, k, v = (self.to_q(x), *self.to_kv(x).chunk(2, dim = -1))
 
         q = rearrange(q, 'b n (h d) -> b h n d', h = self.heads)
+        q = q * self.scale
 
         # add null key / value for classifier free guidance in prior net
 
@@ -501,15 +503,14 @@ class Attention(nn.Module):
             k = torch.cat((ck, k), dim = -2)
             v = torch.cat((cv, v), dim = -2)
 
-        # qk rmsnorm
+        # cosine sim attention
 
-        q, k = map(l2norm, (q, k))
-        q = q * self.q_scale
-        k = k * self.k_scale
+        if self.cosine_sim_attn:
+            q, k = map(l2norm, (q, k))
 
         # calculate query / key similarities
 
-        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.scale
+        sim = einsum('b h i d, b j d -> b h i j', q, k) * self.cosine_sim_scale
 
         # relative positional encoding (T5 style)
 
@@ -800,10 +801,12 @@ class CrossAttention(nn.Module):
         dim_head = 64,
         heads = 8,
         norm_context = False,
-        scale = 8
+        cosine_sim_attn = False
     ):
         super().__init__()
-        self.scale = scale
+        self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
+        self.cosine_sim_attn = cosine_sim_attn
+        self.cosine_sim_scale = 16 if cosine_sim_attn else 1
 
         self.heads = heads
         inner_dim = dim_head * heads
@@ -816,9 +819,6 @@ class CrossAttention(nn.Module):
         self.null_kv = nn.Parameter(torch.randn(2, dim_head))
         self.to_q = nn.Linear(dim, inner_dim, bias = False)
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
-
-        self.q_scale = nn.Parameter(torch.ones(dim_head))
-        self.k_scale = nn.Parameter(torch.ones(dim_head))
 
         self.to_out = nn.Sequential(
             nn.Linear(inner_dim, dim, bias = False),
@@ -842,15 +842,16 @@ class CrossAttention(nn.Module):
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
 
-        # qk rmsnorm
+        q = q * self.scale
 
-        q, k = map(l2norm, (q, k))
-        q = q * self.q_scale
-        k = k * self.k_scale
+        # cosine sim attention
+
+        if self.cosine_sim_attn:
+            q, k = map(l2norm, (q, k))
 
         # similarities
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.cosine_sim_scale
 
         # masking
 
@@ -1032,14 +1033,15 @@ class TransformerBlock(nn.Module):
         heads = 8,
         dim_head = 32,
         ff_mult = 2,
-        context_dim = None
+        context_dim = None,
+        cosine_sim_attn = False
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                EinopsToAndFrom('b c f h w', 'b (f h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim)),
+                EinopsToAndFrom('b c f h w', 'b (f h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, cosine_sim_attn = cosine_sim_attn)),
                 ChanFeedForward(dim = dim, mult = ff_mult)
             ]))
 
@@ -1228,6 +1230,7 @@ class Unet3D(nn.Module):
         scale_skip_connection = True,
         final_resnet_block = True,
         final_conv_kernel_size = 3,
+        cosine_sim_attn = False,
         self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True,       # may address checkboard artifacts
@@ -1339,7 +1342,7 @@ class Unet3D(nn.Module):
 
         # attention pooling
 
-        self.attn_pool = PerceiverResampler(dim = cond_dim, depth = 2, dim_head = attn_dim_head, heads = attn_heads, num_latents = attn_pool_num_latents) if attn_pool_text else None
+        self.attn_pool = PerceiverResampler(dim = cond_dim, depth = 2, dim_head = attn_dim_head, heads = attn_heads, num_latents = attn_pool_num_latents, cosine_sim_attn = cosine_sim_attn) if attn_pool_text else None
 
         # for classifier free guidance
 
@@ -1362,7 +1365,7 @@ class Unet3D(nn.Module):
 
         # attention related params
 
-        attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head)
+        attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head, cosine_sim_attn = cosine_sim_attn)
 
         num_layers = len(in_out)
 
