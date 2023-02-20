@@ -190,6 +190,25 @@ def prob_mask_like(shape, prob, device):
     else:
         return torch.zeros(shape, device = device).float().uniform_(0, 1) < prob
 
+
+def is_attention_layer(layer):
+    is_attention_layer_ = isinstance(layer, Attention) or \
+                          isinstance(layer, LinearAttention) or \
+                          isinstance(layer, CrossAttention) or \
+                          isinstance(layer, LinearCrossAttention) or \
+                          isinstance(layer, ResnetBlock) or \
+                          isinstance(layer, TransformerBlock) or \
+                          isinstance(layer, LinearAttentionTransformerBlock)
+    return is_attention_layer_
+
+
+def get_all_sublayer_recursively(layer):
+    if not isinstance(layer, nn.ModuleList):
+        return [layer, ]
+    layers = []
+    for sublayer in layer:
+        layers.extend(get_all_sublayer_recursively(sublayer))
+    return layers
 # norms and residuals
 
 class LayerNorm(nn.Module):
@@ -255,7 +274,8 @@ class PerceiverAttention(nn.Module):
         dim,
         dim_head = 64,
         heads = 8,
-        cosine_sim_attn = False
+        cosine_sim_attn = False,
+        save_attention = False,
     ):
         super().__init__()
         self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1
@@ -275,6 +295,8 @@ class PerceiverAttention(nn.Module):
             nn.Linear(inner_dim, dim, bias = False),
             nn.LayerNorm(dim)
         )
+        self.save_attention = save_attention
+        self.attention_map = None
 
     def forward(self, x, latents, mask = None):
         x = self.norm(x)
@@ -310,6 +332,9 @@ class PerceiverAttention(nn.Module):
         # attention
 
         attn = sim.softmax(dim = -1)
+
+        if self.save_attention:
+            self.attention_map = torch.clone(rearrange(attn, '(b h) n d -> b h n d', h=self.heads).mean(dim=1, keepdim=True))
 
         out = einsum('... i j, ... j d -> ... i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)', h = h)
@@ -442,7 +467,8 @@ class Attention(nn.Module):
         cosine_sim_attn = False,
         rel_pos_bias = False,
         rel_pos_bias_mlp_depth = 2,
-        init_zero = False
+        init_zero = False,
+        save_attention=False,
     ):
         super().__init__()
         self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
@@ -470,6 +496,9 @@ class Attention(nn.Module):
             nn.Linear(inner_dim, dim, bias = False),
             LayerNorm(dim)
         )
+
+        self.save_attention = save_attention
+        self.attention_map = None
 
         if init_zero:
             nn.init.zeros_(self.to_out[-1].g)
@@ -541,6 +570,9 @@ class Attention(nn.Module):
         attn = sim.softmax(dim = -1)
 
         # aggregate values
+        if self.save_attention:
+            #attn bias might also be interesting?
+            self.attention_map = torch.clone(attn).mean(dim=1) # B x (HxW) x 1063
 
         out = einsum('b h i j, b j d -> b h i d', attn, v)
 
@@ -801,7 +833,8 @@ class CrossAttention(nn.Module):
         dim_head = 64,
         heads = 8,
         norm_context = False,
-        cosine_sim_attn = False
+        cosine_sim_attn = False,
+        save_attention=False,
     ):
         super().__init__()
         self.scale = dim_head ** -0.5 if not cosine_sim_attn else 1.
@@ -824,6 +857,9 @@ class CrossAttention(nn.Module):
             nn.Linear(inner_dim, dim, bias = False),
             LayerNorm(dim)
         )
+        self.save_attention = save_attention
+        self.attention_map = None
+
 
     def forward(self, x, context, mask = None):
         b, n, device = *x.shape[:2], x.device
@@ -863,6 +899,10 @@ class CrossAttention(nn.Module):
             sim = sim.masked_fill(~mask, max_neg_value)
 
         attn = sim.softmax(dim = -1, dtype = torch.float32)
+
+        if self.save_attention:
+            self.attention_map = torch.clone(attn.mean(dim=1))  # B x heads x (HxW) x (38+1) --> unravel and interpret +1 comes from null key, 38 from context
+            #self.attention_map = torch.clone(attn)  # if different heads are interesting
 
         out = einsum('b h i j, b h j d -> b h i d', attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
@@ -904,6 +944,10 @@ class LinearCrossAttention(CrossAttention):
         q = q * self.scale
 
         context = einsum('b n d, b n e -> b d e', k, v)
+
+        if self.save_attention:
+            self.attention_map = torch.clone(rearrange(context, '(b h) n d -> b h n d', h=self.heads).mean(dim=1, keepdim=True)) # unused
+
         out = einsum('b n d, b d e -> b n e', q, context)
         out = rearrange(out, '(b h) n d -> b n (h d)', h = self.heads)
         return self.to_out(out)
@@ -916,6 +960,7 @@ class LinearAttention(nn.Module):
         heads = 8,
         dropout = 0.05,
         context_dim = None,
+        save_attention = False,
         **kwargs
     ):
         super().__init__()
@@ -950,6 +995,8 @@ class LinearAttention(nn.Module):
             Conv2d(inner_dim, dim, 1, bias = False),
             ChanLayerNorm(dim)
         )
+        self.save_attention = save_attention
+        self.attention_map = None
 
     def forward(self, fmap, context = None):
         h, x, y = self.heads, *fmap.shape[-2:]
@@ -971,6 +1018,10 @@ class LinearAttention(nn.Module):
         q = q * self.scale
 
         context = einsum('b n d, b n e -> b d e', k, v)
+
+        if self.save_attention:
+            self.attention_map = torch.clone(rearrange(context, '(b h) n d -> b h n d', h=self.heads).mean(dim=1, keepdim=True))  # unused
+
         out = einsum('b n d, b d e -> b n e', q, context)
         out = rearrange(out, '(b h) (x y) d -> b (h d) x y', h = h, x = x, y = y)
 
@@ -1034,14 +1085,15 @@ class TransformerBlock(nn.Module):
         dim_head = 32,
         ff_mult = 2,
         context_dim = None,
-        cosine_sim_attn = False
+        cosine_sim_attn = False,
+        save_attention = False,
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                EinopsToAndFrom('b c f h w', 'b (f h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, cosine_sim_attn = cosine_sim_attn)),
+                EinopsToAndFrom('b c f h w', 'b (f h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, cosine_sim_attn = cosine_sim_attn, save_attention=save_attention)),
                 ChanFeedForward(dim = dim, mult = ff_mult)
             ]))
 
@@ -1061,6 +1113,7 @@ class LinearAttentionTransformerBlock(nn.Module):
         dim_head = 32,
         ff_mult = 2,
         context_dim = None,
+        save_attention = False,
         **kwargs
     ):
         super().__init__()
@@ -1068,7 +1121,7 @@ class LinearAttentionTransformerBlock(nn.Module):
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                LinearAttention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim),
+                LinearAttention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim, save_attention=save_attention),
                 ChanFeedForward(dim = dim, mult = ff_mult)
             ]))
 
@@ -1234,7 +1287,8 @@ class Unet3D(nn.Module):
         self_cond = False,
         combine_upsample_fmaps = False,      # combine feature maps from all upsample blocks, used in unet squared successfully
         pixel_shuffle_upsample = True,       # may address checkboard artifacts
-        resize_mode = 'nearest'
+        resize_mode = 'nearest',
+        save_attention=False,
     ):
         super().__init__()
 
@@ -1365,7 +1419,9 @@ class Unet3D(nn.Module):
 
         # attention related params
 
-        attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head, cosine_sim_attn = cosine_sim_attn)
+        temporal_attn_kwargs = dict(heads = attn_heads, dim_head = attn_dim_head, cosine_sim_attn = cosine_sim_attn)
+        attn_kwargs = temporal_attn_kwargs.copy()
+        attn_kwargs["save_attention"] = save_attention
 
         num_layers = len(in_out)
 
@@ -1374,7 +1430,7 @@ class Unet3D(nn.Module):
         temporal_peg_padding = (0, 0, 0, 0, 2, 0) if time_causal_attn else (0, 0, 0, 0, 1, 1)
         temporal_peg = lambda dim: Residual(nn.Sequential(Pad(temporal_peg_padding), nn.Conv3d(dim, dim, (3, 1, 1), groups = dim)))
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn, 'init_zero': True, 'rel_pos_bias': True})))
+        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**temporal_attn_kwargs, 'causal': time_causal_attn, 'init_zero': True, 'rel_pos_bias': True})))
 
         # resnet block klass
 
@@ -1528,6 +1584,43 @@ class Unet3D(nn.Module):
         # resize mode
 
         self.resize_mode = resize_mode
+
+    def get_attention_map(self):
+        layers = []
+        if self.init_resnet_block is not None:
+            if self.init_resnet_block.cross_attn is not None:
+                layers.append(self.init_resnet_block.cross_attn)
+
+        # should be all layers
+        layers.extend(get_all_sublayer_recursively(self.ups))
+        layers.extend(get_all_sublayer_recursively(self.mid_attn))
+        layers.extend(get_all_sublayer_recursively(self.downs))
+
+        # get all attention layers
+        attention_maps = []
+        for layer in layers:
+            if not is_attention_layer(layer):
+                continue
+            if isinstance(layer, (Attention, LinearAttention, CrossAttention, LinearCrossAttention)):
+                attention_maps.append(layer.attention_map)
+            else:
+                if isinstance(layer, ResnetBlock):
+                    if layer.cross_attn is not None:
+                        if isinstance(layer.cross_attn, EinopsToAndFrom):
+                            attention_maps.append(layer.cross_attn.fn.attention_map)
+                        else:
+                            attention_maps.append(layer.cross_attn.attention_map)
+                else:
+                    assert isinstance(layer, (TransformerBlock, LinearAttentionTransformerBlock))
+
+                    for i in range(len(layer.layers)):
+                        sublayers = get_all_sublayer_recursively(layer.layers[i])
+                        for sublayer in sublayers:
+                            if isinstance(sublayer, (Attention, LinearAttention, CrossAttention, LinearCrossAttention)):
+                                attention_maps.append(sublayer.attention_map)
+                            elif isinstance(sublayer, EinopsToAndFrom):
+                                attention_maps.append(sublayer.fn.attention_map)
+        return attention_maps
 
     # if the current settings for the unet are not correct
     # for cascading DDPM, then reinit the unet with the right settings
