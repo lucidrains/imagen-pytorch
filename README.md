@@ -728,6 +728,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [ ] make sure eventual dreambooth works with imagen-video
 - [ ] add framerate conditioning for video diffusion
 - [ ] make sure one can simulataneously condition on video frames as a prompt, as well as some conditioning image across all frames
+- [ ] test and add distillation technique from <a href="https://arxiv.org/abs/2303.01469">consistency models</a>
 
 ## Citations
 
