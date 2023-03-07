@@ -61,8 +61,12 @@ class Collator:
             except:
                 continue
 
+            if item[self.text_label] is None:
+                print(f'No text for {item[self.url_label]}')
+                continue
             text = t5.t5_encode_text([item[self.text_label]], name=self.name)
             texts.append(torch.squeeze(text))
+
             images.append(image)
 
         if len(texts) == 0:
@@ -77,16 +81,21 @@ class Collator:
         return torch.utils.data.dataloader.default_collate(newbatch)
 
     def fetch_single_image(self, image_url, timeout=1):
-        try:
-            request = urllib.request.Request(
-                image_url,
-                data=None,
-                headers={"user-agent": USER_AGENT},
-            )
-            with urllib.request.urlopen(request, timeout=timeout) as req:
-                image = Image.open(io.BytesIO(req.read())).convert('RGB')
-        except Exception:
-            image = None
+        # check if image url is a local filepath. If so, load it directly.
+        # Otherwise download it from the internet.
+        if Path(image_url).exists():
+            image = Image.open(image_url).convert('RGB')
+        else:
+            try:
+                request = urllib.request.Request(
+                    image_url,
+                    data=None,
+                    headers={"user-agent": USER_AGENT},
+                )
+                with urllib.request.urlopen(request, timeout=timeout) as req:
+                    image = Image.open(io.BytesIO(req.read())).convert('RGB')
+            except Exception:
+                image = None
         return image
 
 class Dataset(Dataset):

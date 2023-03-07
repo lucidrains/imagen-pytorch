@@ -133,9 +133,14 @@ def train(
 
 
     assert 'batch_size' in config_data['dataset'], 'A batch_size is required in the config file'
-    
+
     # load and add train dataset and valid dataset
-    ds = load_dataset(config_data['dataset_name'])
+    if config_data['dataset_name'] == 'local_materialized':
+        from datasets.arrow_dataset import Dataset
+        from datasets.dataset_dict import DatasetDict
+        ds = DatasetDict({'train': Dataset.from_parquet(config_data['dataset_path'])})
+    else:
+        ds = load_dataset(config_data['dataset_name'])
     trainer.add_train_dataset(
         ds = ds['train'],
         collate_fn = Collator(
