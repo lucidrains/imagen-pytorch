@@ -2012,8 +2012,11 @@ class Imagen(nn.Module):
         if exists(unet_number):
             unet = self.unets[unet_number - 1]
 
+        cpu = torch.device('cpu')
+
         devices = [module_device(unet) for unet in self.unets]
-        self.unets.cpu()
+
+        self.unets.to(cpu)
         unet.to(self.device)
 
         yield
@@ -2305,7 +2308,8 @@ class Imagen(nn.Module):
         return_all_unet_outputs = False,
         return_pil_images = False,
         device = None,
-        use_tqdm = True
+        use_tqdm = True,
+        use_one_unet_in_gpu = True
     ):
         device = default(device, self.device)
         self.reset_unets_all_one_device(device = device)
@@ -2389,7 +2393,7 @@ class Imagen(nn.Module):
 
             assert not isinstance(unet, NullUnet), 'one cannot sample from null / placeholder unets'
 
-            context = self.one_unet_in_gpu(unet = unet) if is_cuda else nullcontext()
+            context = self.one_unet_in_gpu(unet = unet) if is_cuda and use_one_unet_in_gpu else nullcontext()
 
             with context:
                 # video kwargs
