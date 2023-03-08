@@ -341,8 +341,7 @@ class ImagenTrainer(nn.Module):
                 optimizer = Lion(
                     unet.parameters(),
                     lr = unet_lr,
-                    betas = (beta1, beta2),
-                    use_triton = True
+                    betas = (beta1, beta2)
                 )
             else:
                 optimizer = Adam(
