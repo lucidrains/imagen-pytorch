@@ -896,3 +896,12 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     year    = {2023}
 }
 ```
+
+```bibtex
+@article{Zhang2021TokenST,
+    title   = {Token Shift Transformer for Video Classification},
+    author  = {Hao Zhang and Y. Hao and Chong-Wah Ngo},
+    journal = {Proceedings of the 29th ACM International Conference on Multimedia},
+    year    = {2021}
+}
+```
