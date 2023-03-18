@@ -749,16 +749,6 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 ```
 
 ```bibtex
-@article{Choi2022PerceptionPT,
-    title   = {Perception Prioritized Training of Diffusion Models},
-    author  = {Jooyoung Choi and Jungbeom Lee and Chaehun Shin and Sungwon Kim and Hyunwoo J. Kim and Sung-Hoon Yoon},
-    journal = {ArXiv},
-    year    = {2022},
-    volume  = {abs/2204.00227}
-}
-```
-
-```bibtex
 @inproceedings{Sankararaman2022BayesFormerTW,
     title   = {BayesFormer: Transformer with Uncertainty Estimation},
     author  = {Karthik Abinav Sankararaman and Sinong Wang and Han Fang},
@@ -896,5 +886,13 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
     author = {Justin Gilmer, Andrea Schioppa, and Jeremy Cohen},
     year   = {2023},
     status = {to be published - one attention stabilization technique is circulating within Google Brain, being used by multiple teams}
+}
+```
+
+```bibtex
+@inproceedings{Hang2023EfficientDT,
+    title   = {Efficient Diffusion Training via Min-SNR Weighting Strategy},
+    author  = {Tiankai Hang and Shuyang Gu and Chen Li and Jianmin Bao and Dong Chen and Han Hu and Xin Geng and Baining Guo},
+    year    = {2023}
 }
 ```
