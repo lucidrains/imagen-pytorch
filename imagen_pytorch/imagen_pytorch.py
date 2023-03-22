@@ -2607,7 +2607,7 @@ class Imagen(nn.Module):
         maybe_clipped_snr = snr.clone()
 
         if exists(min_snr_gamma):
-            maybe_clipped_snr.clamp_(min = min_snr_gamma)
+            maybe_clipped_snr.clamp_(max = min_snr_gamma)
 
         if pred_objective == 'noise':
             loss_weight = maybe_clipped_snr / snr
