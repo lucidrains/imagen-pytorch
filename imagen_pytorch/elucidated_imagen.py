@@ -402,6 +402,7 @@ class ElucidatedImagen(nn.Module):
         dynamic_threshold = True,
         cond_scale = 1.,
         use_tqdm = True,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -453,6 +454,7 @@ class ElucidatedImagen(nn.Module):
 
         # prepare inpainting images and mask
 
+        inpaint_images = default(inpaint_videos, inpaint_images)
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
         resample_times = inpaint_resample_times if has_inpainting else 1
 
@@ -554,6 +556,7 @@ class ElucidatedImagen(nn.Module):
         cond_images = None,
         cond_video_frames = None,
         post_cond_video_frames = None,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -592,6 +595,10 @@ class ElucidatedImagen(nn.Module):
 
             text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        # inpainting
+
+        inpaint_images = default(inpaint_videos, inpaint_images)
 
         if exists(inpaint_images):
             if self.unconditional:

@@ -523,7 +523,7 @@ inpainted_images = trainer.sample(texts = [
 inpainted_images # (4, 3, 512, 512)
 ```
 
-For video, similarly pass in your videos to `inpaint_images` keyword on `.sample`. Inpainting mask can either be the same across all frames `(batch, height, width)` or different `(batch, frames, height, width)`
+For video, similarly pass in your videos to `inpaint_videos` keyword on `.sample`. Inpainting mask can either be the same across all frames `(batch, height, width)` or different `(batch, frames, height, width)`
 
 ```python
 
@@ -535,7 +535,7 @@ inpainted_videos = trainer.sample(texts = [
     'young girl blowing out candles on her birthday cake',
     'fireworks with blue and green sparkles',
     'dust motes swirling in the morning sunshine on the windowsill'
-], inpaint_images = inpaint_videos, inpaint_masks = inpaint_masks, cond_scale = 5.)
+], inpaint_videos = inpaint_videos, inpaint_masks = inpaint_masks, cond_scale = 5.)
 
 inpainted_videos # (4, 3, 8, 512, 512)
 ```

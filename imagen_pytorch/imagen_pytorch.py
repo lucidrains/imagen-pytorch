@@ -2177,6 +2177,7 @@ class Imagen(nn.Module):
         cond_video_frames = None,
         post_cond_video_frames = None,
         inpaint_images = None,
+        inpaint_videos = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
         init_images = None,
@@ -2207,6 +2208,8 @@ class Imagen(nn.Module):
         x_start = None
 
         # prepare inpainting
+
+        inpaint_images = default(inpaint_videos, inpaint_images)
 
         has_inpainting = exists(inpaint_images) and exists(inpaint_masks)
         resample_times = inpaint_resample_times if has_inpainting else 1
@@ -2295,6 +2298,7 @@ class Imagen(nn.Module):
         cond_images = None,
         cond_video_frames = None,
         post_cond_video_frames = None,
+        inpaint_videos = None,
         inpaint_images = None,
         inpaint_masks = None,
         inpaint_resample_times = 5,
@@ -2330,6 +2334,10 @@ class Imagen(nn.Module):
 
             text_masks = default(text_masks, lambda: torch.any(text_embeds != 0., dim = -1))
             batch_size = text_embeds.shape[0]
+
+        # inpainting
+
+        inpaint_images = default(inpaint_videos, inpaint_images)
 
         if exists(inpaint_images):
             if self.unconditional:
