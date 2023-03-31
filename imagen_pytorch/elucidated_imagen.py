@@ -619,6 +619,14 @@ class ElucidatedImagen(nn.Module):
 
         # handle video and frame dimension
 
+        if self.is_video and exists(inpaint_images):
+            video_frames = inpaint_images.shape[2]
+
+            if inpaint_masks.ndim == 3:
+                inpaint_masks = rearrange(inpaint_masks, 'b h w -> b 1 h w')
+
+            assert inpaint_masks.shape[1] == 1, 'for now, inpainting video can only accept a single mask across frames'
+
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 
         # determine the frame dimensions, if needed
