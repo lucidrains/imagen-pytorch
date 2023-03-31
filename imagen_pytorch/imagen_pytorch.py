@@ -2214,7 +2214,7 @@ class Imagen(nn.Module):
         if has_inpainting:
             inpaint_images = self.normalize_img(inpaint_images)
             inpaint_images = self.resize_to(inpaint_images, shape[-1], **resize_kwargs)
-            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1]).bool()
+            inpaint_masks = self.resize_to(rearrange(inpaint_masks, 'b ... -> b 1 ...').float(), shape[-1], **resize_kwargs).bool()
 
         # time
 
@@ -2364,9 +2364,9 @@ class Imagen(nn.Module):
             video_frames = inpaint_images.shape[2]
 
             if inpaint_masks.ndim == 3:
-                inpaint_masks = rearrange(inpaint_masks, 'b h w -> b 1 h w')
+                inpaint_masks = repeat(inpaint_masks, 'b h w -> b f h w', f = video_frames)
 
-            assert inpaint_masks.shape[1] == 1, 'for now, inpainting video can only accept a single mask across frames'
+            assert inpaint_masks.shape[1] == video_frames
 
         assert not (self.is_video and not exists(video_frames)), 'video_frames must be passed in on sample time if training on video'
 

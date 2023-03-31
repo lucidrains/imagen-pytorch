@@ -523,12 +523,12 @@ inpainted_images = trainer.sample(texts = [
 inpainted_images # (4, 3, 512, 512)
 ```
 
-For video, similarly pass in your videos to `inpaint_images` keyword on `.sample`. For now, the `inpaint_masks` will still have to be a single mask across frames.
+For video, similarly pass in your videos to `inpaint_images` keyword on `.sample`. Inpainting mask can either be the same across all frames `(batch, height, width)` or different `(batch, frames, height, width)`
 
 ```python
 
 inpaint_videos = torch.randn(4, 3, 8, 512, 512).cuda()   # (batch, channels, frames, height, width)
-inpaint_masks = torch.ones((4, 512, 512)).bool().cuda()  # (batch, height, width)
+inpaint_masks = torch.ones((4, 8, 512, 512)).bool().cuda()  # (batch, frames, height, width)
 
 inpainted_videos = trainer.sample(texts = [
     'a whale breaching from afar',
@@ -723,8 +723,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] imagen-video : allow for conditioning on preceding (and possibly future) frames of videos. ignore time should not be allowed in that scenario
 - [x] make sure to automatically take care of temporal down/upsampling for conditioning video frames, but allow for an option to turn it off
 - [x] make sure inpainting works with video
+- [x] make sure inpainting mask for video can accept be customized per frame
 
-- [ ] make sure inpainting mask for video can accept be customized per frame
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
