@@ -16,7 +16,6 @@ import torchvision.transforms as T
 import kornia.augmentation as K
 
 from einops import rearrange, repeat, reduce
-from einops_exts import rearrange_many
 
 from imagen_pytorch.imagen_pytorch import (
     GaussianDiffusionContinuousTimes,
@@ -30,7 +29,6 @@ from imagen_pytorch.imagen_pytorch import (
     cast_tuple,
     cast_uint8_images_to_float,
     eval_decorator,
-    check_shape,
     pad_tuple_to_length,
     resize_image_to,
     calc_all_frame_dims,
@@ -806,8 +804,7 @@ class ElucidatedImagen(nn.Module):
         prev_frame_size     = all_frame_dims[unet_index - 1] if is_video and not ignore_time and unet_index > 0 else None
         frames_to_resize_kwargs = lambda frames: dict(target_frames = frames) if exists(frames) else dict()
 
-        check_shape(images, 'b c ...', c = self.channels)
-
+        assert images.shape[1] == self.channels
         assert h >= target_image_size and w >= target_image_size
 
         if exists(texts) and not exists(text_embeds) and not self.unconditional:
@@ -862,7 +859,7 @@ class ElucidatedImagen(nn.Module):
             aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
 
             if is_video:
-                images, lowres_cond_img = rearrange_many((images, lowres_cond_img), 'b c f h w -> (b f) c h w')
+                images, lowres_cond_img = map(lambda t: rearrange(t, 'b c f h w -> (b f) c h w'), (images, lowres_cond_img))
 
             # make sure low res conditioner and image both get augmented the same way
             # detailed https://kornia.readthedocs.io/en/latest/augmentation.module.html?highlight=randomcrop#kornia.augmentation.RandomCrop
@@ -870,7 +867,7 @@ class ElucidatedImagen(nn.Module):
             lowres_cond_img = aug(lowres_cond_img, params = aug._params)
 
             if is_video:
-                images, lowres_cond_img = rearrange_many((images, lowres_cond_img), '(b f) c h w -> b c f h w', f = frames)
+                images, lowres_cond_img = map(lambda t: rearrange(t, '(b f) c h w -> b c f h w', f = frames), (images, lowres_cond_img))
 
         # noise the lowres conditioning image
         # at sample time, they then fix the noise level of 0.1 - 0.3

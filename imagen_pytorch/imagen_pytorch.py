@@ -21,7 +21,6 @@ import kornia.augmentation as K
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange, Reduce
-from einops_exts import rearrange_many, repeat_many, check_shape
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
@@ -411,7 +410,7 @@ class PerceiverAttention(nn.Module):
         kv_input = torch.cat((x, latents), dim = -2)
         k, v = self.to_kv(kv_input).chunk(2, dim = -1)
 
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> b h n d', h = h)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), (q, k, v))
 
         # qk rmsnorm
 
@@ -536,7 +535,7 @@ class Attention(nn.Module):
 
         # add null key / value for classifier free guidance in prior net
 
-        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> b 1 d', b = b)
+        nk, nv = map(lambda t: repeat(t, 'd -> b 1 d', b = b), self.null_kv.unbind(dim = -2))
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
 
@@ -794,11 +793,11 @@ class CrossAttention(nn.Module):
 
         q, k, v = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
 
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> b h n d', h = self.heads)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), (q, k, v))
 
         # add null key / value for classifier free guidance in prior net
 
-        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> b h 1 d', h = self.heads,  b = b)
+        nk, nv = map(lambda t: repeat(t, 'd -> b h 1 d', h = self.heads,  b = b), self.null_kv.unbind(dim = -2))
 
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
@@ -838,11 +837,11 @@ class LinearCrossAttention(CrossAttention):
 
         q, k, v = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
 
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> (b h) n d', h = self.heads)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = self.heads), (q, k, v))
 
         # add null key / value for classifier free guidance in prior net
 
-        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> (b h) 1 d', h = self.heads,  b = b)
+        nk, nv = map(lambda t: repeat(t, 'd -> (b h) 1 d', h = self.heads,  b = b), self.null_kv.unbind(dim = -2))
 
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
@@ -917,12 +916,12 @@ class LinearAttention(nn.Module):
 
         fmap = self.norm(fmap)
         q, k, v = map(lambda fn: fn(fmap), (self.to_q, self.to_k, self.to_v))
-        q, k, v = rearrange_many((q, k, v), 'b (h c) x y -> (b h) (x y) c', h = h)
+        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y -> (b h) (x y) c', h = h), (q, k, v))
 
         if exists(context):
             assert exists(self.to_context)
             ck, cv = self.to_context(context).chunk(2, dim = -1)
-            ck, cv = rearrange_many((ck, cv), 'b n (h d) -> (b h) n d', h = h)
+            ck, cv = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = h), (ck, cv))
             k = torch.cat((k, ck), dim = -2)
             v = torch.cat((v, cv), dim = -2)
 
@@ -960,7 +959,7 @@ class GlobalContext(nn.Module):
 
     def forward(self, x):
         context = self.to_k(x)
-        x, context = rearrange_many((x, context), 'b n ... -> b n (...)')
+        x, context = map(lambda t: rearrange(t, 'b n ... -> b n (...)'), (x, context))
         out = einsum('b i n, b c n -> b c i', context.softmax(dim = -1), x)
         out = rearrange(out, '... -> ... 1')
         return self.net(out)
@@ -2530,7 +2529,7 @@ class Imagen(nn.Module):
         if exists(random_crop_size):
             if is_video:
                 frames = x_start.shape[2]
-                x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), 'b c f h w -> (b f) c h w')
+                x_start, lowres_cond_img, noise = map(lambda t: rearrange(t, 'b c f h w -> (b f) c h w'), (x_start, lowres_cond_img, noise))
 
             aug = K.RandomCrop((random_crop_size, random_crop_size), p = 1.)
 
@@ -2541,7 +2540,7 @@ class Imagen(nn.Module):
             noise = aug(noise, params = aug._params)
 
             if is_video:
-                x_start, lowres_cond_img, noise = rearrange_many((x_start, lowres_cond_img, noise), '(b f) c h w -> b c f h w', f = frames)
+                x_start, lowres_cond_img, noise = map(lambda t: rearrange(t, '(b f) c h w -> b c f h w', f = frames), (x_start, lowres_cond_img, noise))
 
         # get x_t
 
@@ -2676,7 +2675,7 @@ class Imagen(nn.Module):
 
         b, c, *_, h, w, device, is_video = *images.shape, images.device, images.ndim == 5
 
-        check_shape(images, 'b c ...', c = self.channels)
+        assert images.shape[1] == self.channels
         assert h >= target_image_size and w >= target_image_size
 
         frames              = images.shape[2] if is_video else None

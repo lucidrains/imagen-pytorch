@@ -15,7 +15,6 @@ from torch import nn, einsum
 
 from einops import rearrange, repeat, reduce, pack, unpack
 from einops.layers.torch import Rearrange, Reduce
-from einops_exts import rearrange_many, repeat_many, check_shape
 from einops_exts.torch import EinopsToAndFrom
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
@@ -249,6 +248,23 @@ class Parallel(nn.Module):
         outputs = [fn(x) for fn in self.fns]
         return sum(outputs)
 
+# rearranging
+
+class RearrangeTimeCentric(nn.Module):
+    def __init__(self, fn):
+        super().__init__()
+        self.fn = fn
+
+    def forward(self, x):
+        x = rearrange(x, 'b c f ... -> b ... f c')
+        x, ps = pack([x], '* f c')
+
+        x = self.fn(x)
+
+        x, = unpack(x, ps, '* f c')
+        x = rearrange(x, 'b ... f c -> b c f ...')
+        return x
+
 # attention pooling
 
 class PerceiverAttention(nn.Module):
@@ -292,7 +308,7 @@ class PerceiverAttention(nn.Module):
         kv_input = torch.cat((x, latents), dim = -2)
         k, v = self.to_kv(kv_input).chunk(2, dim = -1)
 
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> b h n d', h = h)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = h), (q, k, v))
 
         # qk rmsnorm
 
@@ -492,7 +508,7 @@ class Attention(nn.Module):
 
         # add null key / value for classifier free guidance in prior net
 
-        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> b 1 d', b = b)
+        nk, nv = map(lambda t: repeat(t, 'd -> b 1 d', b = b), self.null_kv.unbind(dim = -2))
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
 
@@ -750,14 +766,10 @@ class ResnetBlock(nn.Module):
         if exists(cond_dim):
             attn_klass = CrossAttention if not linear_attn else LinearCrossAttention
 
-            self.cross_attn = EinopsToAndFrom(
-                'b c f h w',
-                'b (f h w) c',
-                attn_klass(
-                    dim = dim_out,
-                    context_dim = cond_dim,
-                    **attn_kwargs
-                )
+            self.cross_attn = attn_klass(
+                dim = dim_out,
+                context_dim = cond_dim,
+                **attn_kwargs
             )
 
         self.block1 = Block(dim, dim_out, groups = groups)
@@ -786,7 +798,13 @@ class ResnetBlock(nn.Module):
 
         if exists(self.cross_attn):
             assert exists(cond)
+            h = rearrange(h, 'b c ... -> b ... c')
+            h, ps = pack([h], 'b * c')
+
             h = self.cross_attn(h, context = cond) + h
+
+            h, = unpack(h, ps, 'b * c')
+            h = rearrange(h, 'b ... c -> b c ...')
 
         h = self.block2(h, scale_shift = scale_shift, ignore_time = ignore_time)
 
@@ -836,11 +854,11 @@ class CrossAttention(nn.Module):
 
         q, k, v = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
 
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> b h n d', h = self.heads)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h = self.heads), (q, k, v))
 
         # add null key / value for classifier free guidance in prior net
 
-        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> b h 1 d', h = self.heads,  b = b)
+        nk, nv = map(lambda t: repeat(t, 'd -> b h 1 d', h = self.heads,  b = b), self.null_kv.unbind(dim = -2))
 
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
@@ -879,11 +897,11 @@ class LinearCrossAttention(CrossAttention):
 
         q, k, v = (self.to_q(x), *self.to_kv(context).chunk(2, dim = -1))
 
-        q, k, v = rearrange_many((q, k, v), 'b n (h d) -> (b h) n d', h = self.heads)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = self.heads), (q, k, v))
 
         # add null key / value for classifier free guidance in prior net
 
-        nk, nv = repeat_many(self.null_kv.unbind(dim = -2), 'd -> (b h) 1 d', h = self.heads,  b = b)
+        nk, nv = map(lambda t: repeat(t, 'd -> (b h) 1 d', h = self.heads,  b = b), self.null_kv.unbind(dim = -2))
 
         k = torch.cat((nk, k), dim = -2)
         v = torch.cat((nv, v), dim = -2)
@@ -958,12 +976,12 @@ class LinearAttention(nn.Module):
 
         fmap = self.norm(fmap)
         q, k, v = map(lambda fn: fn(fmap), (self.to_q, self.to_k, self.to_v))
-        q, k, v = rearrange_many((q, k, v), 'b (h c) x y -> (b h) (x y) c', h = h)
+        q, k, v = map(lambda t: rearrange(t, 'b (h c) x y -> (b h) (x y) c', h = h), (q, k, v))
 
         if exists(context):
             assert exists(self.to_context)
             ck, cv = self.to_context(context).chunk(2, dim = -1)
-            ck, cv = rearrange_many((ck, cv), 'b n (h d) -> (b h) n d', h = h)
+            ck, cv = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = h), (ck, cv))
             k = torch.cat((k, ck), dim = -2)
             v = torch.cat((v, cv), dim = -2)
 
@@ -1001,7 +1019,7 @@ class GlobalContext(nn.Module):
 
     def forward(self, x):
         context = self.to_k(x)
-        x, context = rearrange_many((x, context), 'b n ... -> b n (...)')
+        x, context = map(lambda t: rearrange(t, 'b n ... -> b n (...)'), (x, context))
         out = einsum('b i n, b c n -> b c i', context.softmax(dim = -1), x)
         out = rearrange(out, '... -> ... 1 1')
         return self.net(out)
@@ -1053,13 +1071,20 @@ class TransformerBlock(nn.Module):
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                EinopsToAndFrom('b c f h w', 'b (f h w) c', Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim)),
+                Attention(dim = dim, heads = heads, dim_head = dim_head, context_dim = context_dim),
                 ChanFeedForward(dim = dim, mult = ff_mult, time_token_shift = ff_time_token_shift)
             ]))
 
     def forward(self, x, context = None):
         for attn, ff in self.layers:
+            x = rearrange(x, 'b c ... -> b ... c')
+            x, ps = pack([x], 'b * c')
+
             x = attn(x, context = context) + x
+
+            x, = unpack(x, ps, 'b * c')
+            x = rearrange(x, 'b ... c -> b c ...')
+
             x = ff(x) + x
         return x
 
@@ -1387,7 +1412,7 @@ class Unet3D(nn.Module):
         temporal_peg_padding = (0, 0, 0, 0, 2, 0) if time_causal_attn else (0, 0, 0, 0, 1, 1)
         temporal_peg = lambda dim: Residual(nn.Sequential(Pad(temporal_peg_padding), nn.Conv3d(dim, dim, (3, 1, 1), groups = dim)))
 
-        temporal_attn = lambda dim: EinopsToAndFrom('b c f h w', '(b h w) f c', Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn, 'init_zero': True, 'rel_pos_bias': True})))
+        temporal_attn = lambda dim: RearrangeTimeCentric(Residual(Attention(dim, **{**attn_kwargs, 'causal': time_causal_attn, 'init_zero': True, 'rel_pos_bias': True})))
 
         # resnet block klass
 
