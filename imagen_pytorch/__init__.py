@@ -1,3 +1,6 @@
+from einops._torch_specific import allow_ops_in_compiled_graph
+allow_ops_in_compiled_graph()
+
 from imagen_pytorch.imagen_pytorch import Imagen, Unet
 from imagen_pytorch.imagen_pytorch import NullUnet
 from imagen_pytorch.imagen_pytorch import BaseUnet64, SRUnet256, SRUnet1024

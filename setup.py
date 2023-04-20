@@ -30,7 +30,7 @@ setup(
     'beartype',
     'click',
     'datasets',
-    'einops>=0.6',    
+    'einops>=0.6.1',
     'ema-pytorch>=0.0.3',
     'fsspec',
     'kornia',
