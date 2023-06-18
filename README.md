@@ -725,6 +725,7 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 - [x] make sure inpainting works with video
 - [x] make sure inpainting mask for video can accept be customized per frame
 
+- [ ] add flash attention
 - [ ] reread <a href="https://arxiv.org/abs/2205.15868">cogvideo</a> and figure out how frame rate conditioning could be used
 - [ ] bring in attention expertise for self attention layers in unet3d
 - [ ] consider bringing in NUWA's 3d convolutional attention
