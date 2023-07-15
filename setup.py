@@ -38,7 +38,7 @@ setup(
     'numpy',
     'packaging',
     'pillow',
-    'pydantic',
+    'pydantic>=2',
     'pytorch-lightning',
     'pytorch-warmup',
     'sentencepiece',
