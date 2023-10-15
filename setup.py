@@ -45,7 +45,6 @@ setup(
     'torch>=1.6',
     'torchvision',
     'transformers',
-    'triton',
     'tqdm'
   ],
   classifiers=[
