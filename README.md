@@ -44,7 +44,7 @@ Please join <a href="https://discord.gg/xBPBXfcFHd"><img alt="Join us on Discord
 
 - <a href="https://github.com/TheFusion21">Kay</a> for contributing one line command training of Imagen!
 
-- <a href="https://github.com/HReynaud">Hadrien Reynaud</a> for testing out text-to-video on a medical dataset, sharing his results, and identifying issues! <a href="https://arxiv.org/abs/2303.12644">[Paper]</a> <a href="https://github.com/HReynaud/EchoDiffusion">[Code]</a>
+- <a href="https://github.com/HReynaud">Hadrien Reynaud</a> for testing out text-to-video on a medical dataset, sharing his results, and identifying issues!
 
 ## Install
 
@@ -667,6 +667,12 @@ More the reason why you should start training your own model, starting today! Th
 - What am I allowed to do with this repository?
 
 Anything! It is MIT licensed. In other words, you can freely copy / paste for your own research, remixed for whatever modality you can think of. Go train amazing models for profit, for science, or simply to satiate your own personal pleasure at witnessing something divine unravel in front of you.
+
+## Cool Applications!
+
+- <a href="https://arxiv.org/abs/2303.12644">Echocardiogram synthesis</a> <a href="https://github.com/HReynaud/EchoDiffusion">[Code]</a>
+
+- <a href="https://www.biorxiv.org/content/10.1101/2023.10.25.564065v1">SOTA Hi-C contact matrix synthesis</a> <a href="https://github.com/CHNFTQ/Capricorn">[Code]</a>
 
 ## Related Works
 
