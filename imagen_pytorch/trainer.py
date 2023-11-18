@@ -12,7 +12,6 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import random_split, DataLoader
 from torch.optim import Adam
-from lion_pytorch import Lion
 from torch.optim.lr_scheduler import CosineAnnealingLR, LambdaLR
 from torch.cuda.amp import autocast, GradScaler
 
@@ -254,7 +253,6 @@ class ImagenTrainer(nn.Module):
         checkpoint_fs = None,
         fs_kwargs: dict = None,
         max_checkpoints_keep = 20,
-        use_lion = False,
         **kwargs
     ):
         super().__init__()
@@ -337,20 +335,13 @@ class ImagenTrainer(nn.Module):
 
         for ind, (unet, unet_lr, unet_eps, unet_warmup_steps, unet_cosine_decay_max_steps) in enumerate(zip(self.imagen.unets, lr, eps, warmup_steps, cosine_decay_max_steps)):
 
-            if use_lion:
-                optimizer = Lion(
-                    unet.parameters(),
-                    lr = unet_lr,
-                    betas = (beta1, beta2)
-                )
-            else:
-                optimizer = Adam(
-                    unet.parameters(),
-                    lr = unet_lr,
-                    eps = unet_eps,
-                    betas = (beta1, beta2),
-                    **kwargs
-                )
+            optimizer = Adam(
+                unet.parameters(),
+                lr = unet_lr,
+                eps = unet_eps,
+                betas = (beta1, beta2),
+                **kwargs
+            )
 
             if self.use_ema:
                 self.ema_unets.append(EMA(unet, **ema_kwargs))
