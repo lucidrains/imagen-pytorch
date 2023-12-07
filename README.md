@@ -678,6 +678,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 
 - <a href="https://arxiv.org/abs/2312.01152">Ultra High Resolution Histopathology Slides</a>
 
+- <a href="https://arxiv.org/abs/2312.03043">Synthetic Laparoscopic Images</a>
+
 ## Related Works
 
 - <a href="https://github.com/archinetai/audio-diffusion-pytorch">Audio diffusion</a> from <a href="https://github.com/flavioschneider">Flavio Schneider</a>
