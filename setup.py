@@ -38,7 +38,6 @@ setup(
     'packaging',
     'pillow',
     'pydantic>=2',
-    'pytorch-lightning',
     'pytorch-warmup',
     'sentencepiece',
     'torch>=1.6',
