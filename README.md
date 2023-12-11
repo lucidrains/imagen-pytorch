@@ -680,6 +680,8 @@ Anything! It is MIT licensed. In other words, you can freely copy / paste for yo
 
 - <a href="https://arxiv.org/abs/2312.03043">Synthetic Laparoscopic Images</a>
 
+- <a href="https://www.nature.com/articles/s42256-023-00762-x">Designing MetaMaterials</a>
+
 ## Related Works
 
 - <a href="https://github.com/archinetai/audio-diffusion-pytorch">Audio diffusion</a> from <a href="https://github.com/flavioschneider">Flavio Schneider</a>
