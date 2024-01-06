@@ -8,7 +8,7 @@ from tqdm.auto import tqdm
 
 import torch
 import torch.nn.functional as F
-from torch import nn, einsum
+from torch import nn
 from torch.cuda.amp import autocast
 from torch.nn.parallel import DistributedDataParallel
 import torchvision.transforms as T

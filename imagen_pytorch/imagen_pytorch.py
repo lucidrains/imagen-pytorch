@@ -1,12 +1,10 @@
 import math
-import copy
 from random import random
 from beartype.typing import List, Union
 from beartype import beartype
 from tqdm.auto import tqdm
 from functools import partial, wraps
 from contextlib import contextmanager, nullcontext
-from collections import namedtuple
 from pathlib import Path
 
 import torch
@@ -20,7 +18,7 @@ import torchvision.transforms as T
 import kornia.augmentation as K
 
 from einops import rearrange, repeat, reduce, pack, unpack
-from einops.layers.torch import Rearrange, Reduce
+from einops.layers.torch import Rearrange
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME
 
