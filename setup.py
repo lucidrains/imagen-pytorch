@@ -37,14 +37,13 @@ setup(
     'numpy',
     'packaging',
     'pillow',
-    'pydantic<=2',
+    'pydantic>=2',
     'pytorch-warmup',
     'sentencepiece',
     'torch>=1.6',
     'torchvision',
     'transformers',
-    'tqdm',
-    'einops_exts'
+    'tqdm'
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
