@@ -1,20 +1,16 @@
 import math
-import copy
 import operator
 import functools
-from typing import List
 from tqdm.auto import tqdm
 from functools import partial, wraps
-from contextlib import contextmanager, nullcontext
-from collections import namedtuple
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 
-from einops import rearrange, repeat, reduce, pack, unpack
-from einops.layers.torch import Rearrange, Reduce
+from einops import rearrange, repeat, pack, unpack
+from einops.layers.torch import Rearrange
 from einops_exts.torch import EinopsToAndFrom
 
 from imagen_pytorch.t5 import t5_encode_text, get_encoded_dim, DEFAULT_T5_NAME

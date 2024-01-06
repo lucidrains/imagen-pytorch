@@ -8,15 +8,15 @@ from imagen_pytorch.version import __version__
 from imagen_pytorch.data import Collator
 from imagen_pytorch.utils import safeget
 from imagen_pytorch import ImagenTrainer, ElucidatedImagenConfig, ImagenConfig
-from datasets import load_dataset
-
+from datasets import load_dataset, concatenate_datasets
+from tqdm import tqdm
 import json
 
 def exists(val):
     return val is not None
 
-def simple_slugify(text, max_length = 255):
-    return text.replace('-', '_').replace(',', '').replace(' ', '_').replace('|', '--').strip('-_')[:max_length]
+def simple_slugify(text: str, max_length = 255):
+    return text.replace('-', '_').replace(',', '').replace(' ', '_').replace('|', '--').strip('-_./\\')[:max_length]
 
 def main():
     pass
@@ -73,15 +73,11 @@ def config(
 @imagen.command(help = 'Train the Imagen model')
 @click.option('--config', default = './imagen_config.json', help = 'Path to the Imagen model config')
 @click.option('--unet', default = 1, help = 'Unet to train', type = click.IntRange(1, 3, False, True, True))
-@click.option('--epoches', default = 1000, help = 'Amount of epoches to train for')
-@click.option('--text', required = False, help = 'Text to sample with between epoches', type=str)
-@click.option('--valid', is_flag = False, flag_value=50, default = 0, help = 'Do validation between epoches', show_default = True)
+@click.option('--epoches', default = 50, help = 'Amount of epoches to train for')
 def train(
     config,
     unet,
     epoches,
-    text,
-    valid
 ):
     # check config path
 
@@ -136,8 +132,23 @@ def train(
     
     # load and add train dataset and valid dataset
     ds = load_dataset(config_data['dataset_name'])
+    
+    train_ds = None
+    
+    # if we have train and valid split we combine them into one dataset to let trainer handle the split
+    if 'train' in ds and 'valid' in ds:
+        train_ds = concatenate_datasets([ds['train'], ds['valid']])
+    elif 'train' in ds:
+        train_ds = ds['train']
+    elif 'valid' in ds:
+        train_ds = ds['valid']
+    else:
+        train_ds = ds
+        
+    assert train_ds is not None, 'No train dataset could be fetched from the dataset name provided'
+    
     trainer.add_train_dataset(
-        ds = ds['train'],
+        ds = train_ds,
         collate_fn = Collator(
             image_size = size,
             image_label = config_data['image_label'],
@@ -148,33 +159,37 @@ def train(
         ),
         **config_data['dataset']
     )
-
-
-    if not trainer.split_valid_from_train and valid != 0:
-        assert 'valid' in ds, 'There is no validation split in the dataset'
-        trainer.add_valid_dataset(
-            ds = ds['valid'],
-            collate_fn = Collator(
-                image_size = size,
-                image_label = config_data['image_label'],
-                text_label= config_data['text_label'],
-                url_label = config_data['url_label'],
-                name = imagen.text_encoder_name,
-                channels = channels 
-            ),
-            **config_data['dataset']
-        )
-
+    
+    should_validate = trainer.split_valid_from_train and 'validate_at_every' in config_data
+    should_sample = 'sample_texts' in config_data and 'sample_at_every' in config_data
+    should_save = 'save_at_every' in config_data
+    
+    valid_at_every = config_data['validate_at_every'] if should_validate else 0
+    assert isinstance(valid_at_every, int), 'validate_at_every must be an integer'
+    sample_at_every = config_data['sample_at_every'] if should_sample else 0
+    assert isinstance(sample_at_every, int), 'sample_at_every must be an integer'
+    save_at_every = config_data['save_at_every'] if should_save else 0
+    assert isinstance(save_at_every, int), 'save_at_every must be an integer'
+    sample_texts = config_data['sample_texts'] if should_sample else []
+    assert isinstance(sample_texts, list), 'sample_texts must be a list'
+    
+    # check if when should_sample is true, sample_texts is not empty
+    assert not should_sample or len(sample_texts) > 0, 'sample_texts must not be empty when sample_at_every is set'
+    
     for i in range(epoches):
-        loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size)
-        print(f'loss: {loss}')
+        for _ in tqdm(range(len(trainer.train_dl))):
+            loss = trainer.train_step(unet_number = unet, max_batch_size = max_batch_size)
+            print(f'loss: {loss}')
 
-        if valid != 0 and not (i % valid) and i > 0:
+        if not (i % valid_at_every) and i > 0 and trainer.is_main and should_validate:
             valid_loss = trainer.valid_step(unet_number = unet, max_batch_size = max_batch_size)
             print(f'valid loss: {valid_loss}')
 
-        if not (i % 100) and i > 0 and trainer.is_main and text is not None:
-            images = trainer.sample(texts = [text], batch_size = 1, return_pil_images = True, stop_at_unet_number = unet)
+        if not (i % save_at_every) and i > 0 and trainer.is_main and should_sample:
+            images = trainer.sample(texts = [sample_texts], batch_size = 1, return_pil_images = True, stop_at_unet_number = unet)
             images[0].save(f'./sample-{i // 100}.png')
+            
+        if not (i % save_at_every) and i > 0 and trainer.is_main and should_save:
+            trainer.save(model_path)
 
     trainer.save(model_path)
