@@ -46,5 +46,12 @@
     "image_label": null,
     "url_label": "URL",
     "text_label": "TEXT",
-    "checkpoint_path": "./imagen.pt"
+    "checkpoint_path": "./imagen.pt",
+    "sample_at_every": 100,
+    "save_at_every": 1000,
+    "validate_at_every": 1000,
+    "sample_texts": [
+        "Three spheres made of glass falling into ocean. Water is splashing. Sun is setting.",
+        "A dragon fruit wearing karate belt in the snow."
+    ]
 }

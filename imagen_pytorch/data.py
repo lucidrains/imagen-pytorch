@@ -4,8 +4,7 @@ from functools import partial
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms as T, utils
-import torch.nn.functional as F
+from torchvision import transforms as T
 from imagen_pytorch import t5
 from torch.nn.utils.rnn import pad_sequence
 
