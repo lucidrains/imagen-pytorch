@@ -53,7 +53,7 @@ def sample(
 
     # generate image
 
-    pil_image = imagen.sample(text, cond_scale = cond_scale, return_pil_images = True)
+    pil_image = imagen.sample([text], cond_scale = cond_scale, return_pil_images = True)
 
     image_path = f'./{simple_slugify(text)}.png'
     pil_image[0].save(image_path)

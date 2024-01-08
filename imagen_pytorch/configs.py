@@ -44,7 +44,7 @@ class UnetConfig(AllowExtraBaseModel):
     dim:                int
     dim_mults:          ListOrTuple(int)
     text_embed_dim:     int = get_encoded_dim(DEFAULT_T5_NAME)
-    cond_dim:           int = None
+    cond_dim:           Optional[int] = None
     channels:           int = 3
     attn_dim_head:      int = 32
     attn_heads:         int = 16
@@ -56,7 +56,7 @@ class Unet3DConfig(AllowExtraBaseModel):
     dim:                int
     dim_mults:          ListOrTuple(int)
     text_embed_dim:     int = get_encoded_dim(DEFAULT_T5_NAME)
-    cond_dim:           int = None
+    cond_dim:           Optional[int] = None
     channels:           int = 3
     attn_dim_head:      int = 32
     attn_heads:         int = 16
@@ -75,12 +75,11 @@ class ImagenConfig(AllowExtraBaseModel):
     loss_type:              str = 'l2'
     cond_drop_prob:         float = 0.5
 
-    @validator('image_sizes')
-    def check_image_sizes(cls, image_sizes, values):
-        unets = values.get('unets')
-        if len(image_sizes) != len(unets):
-            raise ValueError(f'image sizes length {len(image_sizes)} must be equivalent to the number of unets {len(unets)}')
-        return image_sizes
+    @model_validator(mode="after")
+    def check_image_sizes(self):
+        if len(self.image_sizes) != len(self.unets):
+            raise ValueError(f'image sizes length {len(self.image_sizes)} must be equivalent to the number of unets {len(self.unets)}')
+        return self
 
     def create(self):
         decoder_kwargs = self.dict()
@@ -123,12 +122,11 @@ class ElucidatedImagenConfig(AllowExtraBaseModel):
     S_tmax:                 SingleOrList(int) = 50
     S_noise:                SingleOrList(float) = 1.003
 
-    @validator('image_sizes')
-    def check_image_sizes(cls, image_sizes, values):
-        unets = values.get('unets')
-        if len(image_sizes) != len(unets):
-            raise ValueError(f'image sizes length {len(image_sizes)} must be equivalent to the number of unets {len(unets)}')
-        return image_sizes
+    @model_validator(mode="after")
+    def check_image_sizes(self):
+        if len(self.image_sizes) != len(self.unets):
+            raise ValueError(f'image sizes length {len(self.image_sizes)} must be equivalent to the number of unets {len(self.unets)}')
+        return self
 
     def create(self):
         decoder_kwargs = self.dict()
