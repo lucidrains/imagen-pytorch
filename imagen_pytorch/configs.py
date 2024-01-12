@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, model_validator
 from typing import List, Optional, Union, Tuple
 from enum import Enum
 
