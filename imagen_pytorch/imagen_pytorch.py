@@ -1,6 +1,6 @@
 import math
 from random import random
-from beartype.typing import List, Union
+from beartype.typing import List, Union, Optional
 from beartype import beartype
 from tqdm.auto import tqdm
 from functools import partial, wraps
@@ -2288,7 +2288,7 @@ class Imagen(nn.Module):
     @beartype
     def sample(
         self,
-        texts: List[str] = None,
+        texts: Optional[List[str]] = None,
         text_masks = None,
         text_embeds = None,
         video_frames = None,
@@ -2637,7 +2637,7 @@ class Imagen(nn.Module):
         self,
         images, # rename to images or video
         unet: Union[Unet, Unet3D, NullUnet, DistributedDataParallel] = None,
-        texts: List[str] = None,
+        texts: Optional[List[str]] = None,
         text_embeds = None,
         text_masks = None,
         unet_number = None,
