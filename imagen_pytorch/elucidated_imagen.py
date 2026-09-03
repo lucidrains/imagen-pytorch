@@ -380,6 +380,21 @@ class ElucidatedImagen(nn.Module):
         sigma_min,
         sigma_max
     ):
+        if num_sample_steps < 1:
+            raise ValueError('num_sample_steps must be at least 1')
+
+        # The Karras schedule is normally defined with N >= 2.  Distilled
+        # networks, however, are often sampled with a single denoising step.
+        # Evaluating the interpolation formula at N = 1 would divide by zero
+        # and poison the initial latent with NaNs.  A one-step schedule is the
+        # well-defined limiting pair (sigma_max, 0).
+        if num_sample_steps == 1:
+            return torch.tensor(
+                (float(sigma_max), 0.),
+                device = self.device,
+                dtype = torch.float32
+            )
+
         N = num_sample_steps
         inv_rho = 1 / rho
 
