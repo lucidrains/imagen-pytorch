@@ -667,13 +667,19 @@ class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
+        # Timesteps `x` are commonly passed in as `long`, so the output dtype can't just
+        # track `x.dtype` -- that would truncate the fractional sin/cos values to
+        # integers. This non-persistent buffer exists purely so `forward` can track the
+        # module's own working dtype through `Module.to()`/`.half()`, independent of
+        # `x`'s dtype.
+        self.register_buffer('_dtype_ref', torch.empty(0), persistent = False)
 
     def forward(self, x):
         half_dim = self.dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, device = x.device) * -emb)
         emb = rearrange(x, 'i -> i 1') * rearrange(emb, 'j -> 1 j')
-        return torch.cat((emb.sin(), emb.cos()), dim = -1)
+        return torch.cat((emb.sin(), emb.cos()), dim = -1).to(self._dtype_ref.dtype)
 
 class LearnedSinusoidalPosEmb(nn.Module):
     """ following @crowsonkb 's lead with learned sinusoidal pos emb """
