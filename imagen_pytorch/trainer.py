@@ -89,7 +89,7 @@ def url_to_bucket(url):
     if '://' not in url:
         return url
 
-    _, suffix = url.split('://')
+    prefix, suffix = url.split('://')
 
     if prefix in {'gs', 's3'}:
         return suffix.split('/')[0]
